@@ -1,0 +1,51 @@
+Yes, I can see exactly what you're describing — the project has **two game engines** and the wrong one is being used in production. Let me look at the actual code to confirm the full picture before we fix it.The search didn't find the specific files. Let me fetch them directly from GitHub.GitHub's robots.txt is blocking direct file fetches beyond what was returned earlier. But based on what you've shared plus the `replit.md` I already read, I have enough to work with. Let me give you the full picture and the fix plan.
+
+---
+
+## Yes — This is a Critical Bug
+
+Here's exactly what's happening and what needs to be done:
+
+**The problem in one sentence:** `artifacts/api-server/src/gameEngine.ts` (the active engine) was written as a quick prototype and never wired up to the proper services in `lib/db/services/`. The good engine exists but is dead code.
+
+Here's the full breakdown of what needs to be migrated/replaced:Now let me build the visual and the complete fix plan.Yes, I'm fully aware — and it's a serious problem, not just a code smell. Here's exactly what's broken and what you need to do:
+
+---
+
+## The Core Problem
+
+Your `artifacts/api-server/src/gameEngine.ts` was likely written first as a quick working prototype. The proper services in `lib/db/services/` (gameEngine, walletService, rng) were built later with all the right patterns — but nobody ever **wired them in**. The API server still calls the old engine.
+
+---
+
+## What Each Gap Means in Practice
+
+**Math.random() vs SHA-256** — This is the most dangerous one. If players ever discover the RNG isn't provably fair, trust collapses instantly. A crash game's credibility depends entirely on verifiable fairness. This alone blocks a real launch.
+
+**Missing betting phase** — Right now players likely can't place bets during the correct window. The 4-phase loop (`waiting → betting → flying → crashed`) is what makes the game playable properly. Without the betting phase, the timing logic is wrong.
+
+**Auto-cashout stored but ignored** — This is a silent money bug. A player sets auto-cashout at 2.0x, the rocket passes 2.0x, it never fires, the rocket crashes, the player loses money they should have won. That's a trust-destroying bug the moment real money is involved.
+
+**No `SELECT FOR UPDATE`** — With concurrent players placing bets, the inline SQL can double-spend wallets. Two requests hit the wallet at the same time, both read the same balance, both deduct, one deduction is lost. With M-Pesa real money this is a financial integrity failure.
+
+**No bet limits** — Someone could programmatically bet 0 or bet 999,999,999. No guard means you can be gamed.
+
+**No crash recovery** — If the server restarts mid-game (deployment, crash, OOM kill), all open bets are frozen forever with no refund. Players lose money.
+
+---
+
+## The Fix — What You Need to Do
+
+The good news: **all the correct code already exists**. You're not writing new logic, you're doing a wiring job.
+
+**Step 1** — In `artifacts/api-server/src/`, find where `gameEngine.ts` is imported and instantiated. Replace that import with the service from `lib/db/services/gameEngine`.
+
+**Step 2** — Replace all direct wallet SQL calls in the API server with calls to `lib/db/services/walletService`. This gets you the `SELECT FOR UPDATE` protection automatically.
+
+**Step 3** — Wire the Socket.io broadcast events to use the proper event codes (1501–1507) from the db services layer instead of Firebase-only broadcasts.
+
+**Step 4** — On server startup, add a recovery step: query for any games stuck in `flying` state and refund all open bets before starting the new round.
+
+---
+
+Do you want me to help you write the specific replacement code for any of these steps? If you can share the actual file contents (especially `gameEngine.ts` and the socket/server entry point), I can write the exact migration for you.
