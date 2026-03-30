@@ -1,0 +1,616 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.2.0
+  description: Shinda 24/7 Rocket Crash Game API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: game
+    description: Game operations
+  - name: players
+    description: Player operations
+  - name: auth
+    description: Authentication operations
+  - name: mpesa
+    description: M-Pesa payment operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /game/state:
+    get:
+      operationId: getGameState
+      tags: [game]
+      summary: Get current game state
+      responses:
+        "200":
+          description: Current game state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GameState"
+
+  /game/history:
+    get:
+      operationId: getGameHistory
+      tags: [game]
+      summary: Get recent game history
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: List of past games
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GameRound"
+
+  /game/bet:
+    post:
+      operationId: placeBet
+      tags: [game]
+      summary: Place a bet for the current game
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlaceBetRequest"
+      responses:
+        "200":
+          description: Bet placed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlaceBetResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /game/cashout:
+    post:
+      operationId: cashOut
+      tags: [game]
+      summary: Cash out current bet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CashOutRequest"
+      responses:
+        "200":
+          description: Cash out successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashOutResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /players:
+    get:
+      operationId: getActivePlayers
+      tags: [players]
+      summary: Get list of active players in current round
+      responses:
+        "200":
+          description: List of active players
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivePlayer"
+
+  /players/leaderboard:
+    get:
+      operationId: getLeaderboard
+      tags: [players]
+      summary: Get player leaderboard (right sidebar)
+      responses:
+        "200":
+          description: Leaderboard players
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LeaderboardPlayer"
+
+  /wallet:
+    get:
+      operationId: getWallet
+      tags: [players]
+      summary: Get current player wallet balance
+      responses:
+        "200":
+          description: Wallet info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletInfo"
+
+  /auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Register a new player (sends OTP)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "200":
+          description: OTP sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpSentResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Phone or username already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/verify-otp:
+    post:
+      operationId: verifyOtp
+      tags: [auth]
+      summary: Verify OTP and get JWT token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyOtpRequest"
+      responses:
+        "200":
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Invalid OTP
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login with phone (sends OTP)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: OTP sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpSentResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current authenticated user
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /mpesa/deposit:
+    post:
+      operationId: mpesaDeposit
+      tags: [mpesa]
+      summary: Initiate M-Pesa STK Push deposit
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DepositRequest"
+      responses:
+        "200":
+          description: STK Push initiated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepositResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: M-Pesa service error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /mpesa/withdraw:
+    post:
+      operationId: mpesaWithdraw
+      tags: [mpesa]
+      summary: Withdraw to M-Pesa via B2C
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WithdrawRequest"
+      responses:
+        "200":
+          description: Withdrawal initiated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WithdrawResponse"
+        "400":
+          description: Validation or insufficient balance error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /mpesa/callback:
+    post:
+      operationId: mpesaCallback
+      tags: [mpesa]
+      summary: Daraja STK Push callback (Safaricom → server)
+      responses:
+        "200":
+          description: Accepted
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    GamePhase:
+      type: string
+      enum: [waiting, flying, crashed]
+
+    GameState:
+      type: object
+      properties:
+        phase:
+          $ref: "#/components/schemas/GamePhase"
+        multiplier:
+          type: number
+        crashedAt:
+          type: number
+          nullable: true
+        roundId:
+          type: integer
+        countdownMs:
+          type: integer
+          nullable: true
+        onlineCount:
+          type: integer
+        playingCount:
+          type: integer
+      required:
+        - phase
+        - multiplier
+        - roundId
+        - onlineCount
+        - playingCount
+
+    GameRound:
+      type: object
+      properties:
+        id:
+          type: integer
+        crashedAt:
+          type: number
+        hash:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - crashedAt
+        - hash
+        - createdAt
+
+    PlaceBetRequest:
+      type: object
+      properties:
+        amount:
+          type: number
+        autoCashOut:
+          type: number
+          nullable: true
+        playerId:
+          type: string
+      required:
+        - amount
+        - playerId
+
+    PlaceBetResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        betId:
+          type: integer
+        balance:
+          type: number
+      required:
+        - success
+        - betId
+        - balance
+
+    CashOutRequest:
+      type: object
+      properties:
+        betId:
+          type: integer
+        playerId:
+          type: string
+      required:
+        - betId
+        - playerId
+
+    CashOutResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        profit:
+          type: number
+        multiplier:
+          type: number
+        balance:
+          type: number
+      required:
+        - success
+        - profit
+        - multiplier
+        - balance
+
+    ActivePlayer:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        amount:
+          type: number
+        multiplier:
+          type: number
+          nullable: true
+        profit:
+          type: number
+          nullable: true
+        cashedOut:
+          type: boolean
+        hash:
+          type: string
+      required:
+        - id
+        - username
+        - amount
+        - cashedOut
+        - hash
+
+    LeaderboardPlayer:
+      type: object
+      properties:
+        username:
+          type: string
+        multiplier:
+          type: number
+        amount:
+          type: number
+      required:
+        - username
+        - multiplier
+        - amount
+
+    WalletInfo:
+      type: object
+      properties:
+        balance:
+          type: number
+        playerId:
+          type: string
+      required:
+        - balance
+        - playerId
+
+    RegisterRequest:
+      type: object
+      properties:
+        phone:
+          type: string
+        username:
+          type: string
+      required:
+        - phone
+        - username
+
+    LoginRequest:
+      type: object
+      properties:
+        phone:
+          type: string
+      required:
+        - phone
+
+    VerifyOtpRequest:
+      type: object
+      properties:
+        phone:
+          type: string
+        otp:
+          type: string
+        username:
+          type: string
+      required:
+        - phone
+        - otp
+
+    OtpSentResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        phone:
+          type: string
+      required:
+        - message
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: "#/components/schemas/UserProfile"
+      required:
+        - token
+        - user
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: integer
+        phone:
+          type: string
+        username:
+          type: string
+        isAdmin:
+          type: boolean
+      required:
+        - id
+        - phone
+        - username
+        - isAdmin
+
+    DepositRequest:
+      type: object
+      properties:
+        phone:
+          type: string
+        amountKes:
+          type: number
+      required:
+        - phone
+        - amountKes
+
+    DepositResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        checkoutRequestId:
+          type: string
+      required:
+        - message
+
+    WithdrawRequest:
+      type: object
+      properties:
+        phone:
+          type: string
+        amountKes:
+          type: number
+      required:
+        - phone
+        - amountKes
+
+    WithdrawResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        conversationId:
+          type: string
+        newBalanceCents:
+          type: integer
+      required:
+        - message
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error

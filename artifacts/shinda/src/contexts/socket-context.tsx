@@ -1,0 +1,109 @@
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { io, type Socket } from "socket.io-client";
+
+export type GamePhase = "waiting" | "flying" | "crashed";
+
+export interface GameStatePayload {
+  phase: GamePhase;
+  multiplier: number;
+  crashedAt: number | null;
+  roundId: number;
+  countdownMs: number | null;
+  onlineCount: number;
+  playingCount: number;
+  flyingStartedAt: number | null;
+}
+
+interface SocketContextValue {
+  connected: boolean;
+  gameState: GameStatePayload | null;
+  smoothMultiplier: number;
+}
+
+const SocketContext = createContext<SocketContextValue>({
+  connected: false,
+  gameState: null,
+  smoothMultiplier: 1.0,
+});
+
+function calcMultiplier(ms: number): number {
+  const t = ms / 1000;
+  return Math.round((1.0024 ** (t * 100)) * 100) / 100;
+}
+
+export function SocketProvider({ children }: { children: ReactNode }) {
+  const socketRef = useRef<Socket | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [gameState, setGameState] = useState<GameStatePayload | null>(null);
+  const [smoothMultiplier, setSmoothMultiplier] = useState(1.0);
+  const rafRef = useRef<number | null>(null);
+  const gameStateRef = useRef<GameStatePayload | null>(null);
+
+  useEffect(() => {
+    gameStateRef.current = gameState;
+  }, [gameState]);
+
+  useEffect(() => {
+    function tick() {
+      const gs = gameStateRef.current;
+      if (gs?.phase === "flying" && gs.flyingStartedAt != null) {
+        const elapsed = Date.now() - gs.flyingStartedAt;
+        const m = calcMultiplier(elapsed);
+        setSmoothMultiplier(Math.max(1.0, m));
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    }
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const socket = io("/", {
+      path: "/socket.io",
+      transports: ["websocket", "polling"],
+    });
+    socketRef.current = socket;
+
+    socket.on("connect", () => setConnected(true));
+    socket.on("disconnect", () => setConnected(false));
+
+    socket.on("game:state", (data: GameStatePayload) => {
+      setGameState(data);
+      if (data.phase !== "flying") {
+        setSmoothMultiplier(data.multiplier ?? 1.0);
+      }
+    });
+    socket.on("game:crash", (data: GameStatePayload) => {
+      setGameState(data);
+      setSmoothMultiplier(data.multiplier ?? 1.0);
+    });
+    socket.on("game:newRound", (data: Partial<GameStatePayload>) => {
+      setGameState(prev => ({
+        ...(prev ?? { multiplier: 1.0, crashedAt: null, onlineCount: 0, playingCount: 0 }),
+        phase: "waiting",
+        roundId: data.roundId ?? prev?.roundId ?? 0,
+        countdownMs: data.countdownMs ?? 15000,
+        multiplier: 1.0,
+        crashedAt: null,
+        flyingStartedAt: null,
+      }));
+      setSmoothMultiplier(1.0);
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
+  return (
+    <SocketContext.Provider value={{ connected, gameState, smoothMultiplier }}>
+      {children}
+    </SocketContext.Provider>
+  );
+}
+
+export function useSocket() {
+  return useContext(SocketContext);
+}

@@ -1,0 +1,70 @@
+modules = ["web", "nodejs-24"]
+[agent]
+expertMode = true
+
+[nix]
+channel = "stable-25_05"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Backend API"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Backend API"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=3000 pnpm --filter @workspace/api-server run dev"
+waitForPort = 3000
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=5000 BASE_PATH=/ pnpm --filter @workspace/shinda run dev"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 3000
+externalPort = 3000
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[deployment]
+deploymentTarget = "vm"
+run = ["bash", "-c", "PORT=3000 node --enable-source-maps artifacts/api-server/dist/index.mjs & PORT=5000 BASE_PATH=/ pnpm --filter @workspace/shinda run serve"]
+build = ["bash", "-c", "pnpm install && pnpm --filter @workspace/db run push && pnpm --filter @workspace/api-server run build && PORT=5000 BASE_PATH=/ pnpm --filter @workspace/shinda run build"]
+
+[userenv]
+
+[userenv.shared]
+VITE_FIREBASE_API_KEY = "AIzaSyBZCDt04VIL-BuVC-mLO_jWnE1LfviUCuc"
+VITE_FIREBASE_AUTH_DOMAIN = "shida247-2cb90.firebaseapp.com"
+VITE_FIREBASE_PROJECT_ID = "shida247-2cb90"
+VITE_FIREBASE_APP_ID = "1:238528784021:web:c839859cb36ab11f895d9c"
+FIREBASE_PROJECT_ID = "shida247-2cb90"
+FIREBASE_DATABASE_URL = "https://shida247-2cb90-default-rtdb.firebaseio.com"
+VITE_FIREBASE_DATABASE_URL = "https://shida247-2cb90-default-rtdb.firebaseio.com"

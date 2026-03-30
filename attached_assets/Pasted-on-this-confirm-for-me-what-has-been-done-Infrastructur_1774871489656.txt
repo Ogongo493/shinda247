@@ -1,0 +1,99 @@
+on this confirm for me what has been done 
+Infrastructure — what you havepnpm monorepo
+Well structured — artifacts/, lib/, scripts/ — good foundation
+done
+Express 5 API server
+Bootstrapped with routes, CORS, Zod validation, health endpoint
+done
+PostgreSQL + Drizzle ORM
+DB connection configured, Drizzle Kit push working on Replit
+done
+OpenAPI + codegen
+Orval generating React Query hooks + Zod schemas from spec
+done
+TypeScript 5.9 + esbuild
+Composite project references, emitDeclarationOnly, CJS bundle
+done
+DB schema
+No model definitions yet — tables need to be created
+partial
+Frontend
+React Query hooks generated but no React app / UI package yet
+partial
+Game engine — entirely missingWebSocket server
+No ws/uWebSockets setup. Core of the entire platform — every player interaction goes through here
+critical
+Game loop
+No round lifecycle: waiting → betting open → betting closed → flying → crashed. This is the heart of the game
+critical
+Crash RNG + hash chain
+No provably fair seed generation. SHA256 chain, crash point computation, gameHash publishing
+missing
+Multiplier tick broadcaster
+No 150ms tick timer broadcasting elapsed_ms to all clients
+missing
+MessagePack protocol
+No binary WS encoding. Pakakumi uses msgpackr — you need this for performance
+missing
+Bot simulation
+replit.md mentions bots but no implementation. Needed to make game feel alive early on
+missing
+Payments — entirely missingM-Pesa Daraja STK Push
+No deposit flow. This is how every player funds their wallet — KES only
+critical
+M-Pesa B2C withdrawal
+No withdrawal flow. Players need to cash out to their phone
+critical
+Callback handler
+No Daraja callback endpoint. Must verify Safaricom signature + credit wallet atomically
+critical
+Wallet service
+No balance tracking, ledger, or atomic transaction logic
+missing
+Transaction deduplication
+No CheckoutRequestID idempotency — replay attack prevention
+missing
+Auth + players — missingPhone + OTP auth
+No registration, SMS OTP, or session management
+missing
+JWT / session tokens
+No auth middleware on API routes or WS connections
+missing
+Player profile + KYC
+No user table, no ID verification flow
+missing
+Game features — partially described, not builtBet placement API
+replit.md mentions it but no route exists yet
+partial
+Cashout API
+Mentioned but not built. Must be server-side validated against crash timestamp
+missing
+Game canvas / UI
+No frontend package. Need React app with canvas-based rocket animation
+missing
+Live bet feed sidebar
+Referenced in replit.md — not built
+missing
+Game history table
+Referenced in replit.md — not built
+missing
+Admin panel
+No admin UI for game management, player management, transaction reports
+missing
+Build order — what to do next, in sequence
+1
+DB schema — users, games, bets, transactions tables. Everything else depends on this.
+2
+WebSocket server + game loop — the core. Round lifecycle, crash RNG, hash chain, 150ms tick broadcaster.
+3
+Wallet service — atomic balance operations with row-level locking. No race conditions.
+4
+Bet + cashout API — server-side cashout validation against crash timestamp.
+5
+M-Pesa Daraja — STK Push deposit + B2C withdrawal + callback handler with signature verification.
+6
+Auth — phone + OTP registration/login, JWT middleware, WS auth.
+7
+Frontend — React app, canvas game, live bet feed, wallet UI.
+8
+Bots — simulated players to keep the game alive during early traction.
