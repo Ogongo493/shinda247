@@ -1,17 +1,21 @@
 import crypto from "crypto";
 import { db } from "@workspace/db";
-import { gameRoundsTable, betsTable, playersTable, wallets, users } from "@workspace/db";
+import { games, bets, users, wallets } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
 import { logger } from "./logger";
-import { writeGameState } from "./rtdb";
-
-function isRealUser(playerId: string): boolean {
-  return /^\d+$/.test(playerId);
-}
+import {
+  initGameEngine,
+  getCurrentGame,
+  getActiveBets,
+  placeBet as enginePlaceBet,
+  processCashout,
+  setBroadcast,
+  elapsedToMultiplier,
+} from "@workspace/db";
 
 export type GamePhase = "waiting" | "flying" | "crashed";
 
-interface GameState {
+export interface GameState {
   phase: GamePhase;
   multiplier: number;
   crashedAt: number | null;
@@ -23,7 +27,7 @@ interface GameState {
   flyingStartedAt: number | null;
 }
 
-interface ActivePlayer {
+interface BotPlayer {
   id: string;
   username: string;
   amount: number;
@@ -33,362 +37,355 @@ interface ActivePlayer {
   hash: string;
 }
 
-const WAITING_DURATION_MS = 15000;
-const MIN_CRASH = 1.0;
+const BOT_NAMES = [
+  "Peterode", "lagatsa", "Brandd", "Serrias", "yegoro",
+  "Johndo", "Ourmae", "Peterdc", "kevinge", "mutuah",
+  "njoro.a", "njugun", "angira", "Wafula", "Kamau",
+  "Muthoni", "Odhiambo", "Chepkemoi", "Githinji", "Wanjiru",
+];
+const BOT_AMOUNTS = [100, 200, 300, 500, 750, 1000, 1500, 2000, 3000];
 
-let state: GameState = {
-  phase: "waiting",
-  multiplier: 1.0,
-  crashedAt: null,
-  roundId: 0,
-  countdownMs: WAITING_DURATION_MS,
-  onlineCount: Math.floor(Math.random() * 500) + 800,
-  playingCount: 0,
-  startTime: null,
-  flyingStartedAt: null,
-};
+let botPlayers: Map<string, BotPlayer> = new Map();
+let botCashoutTimers: ReturnType<typeof setTimeout>[] = [];
+let botBetTimers: ReturnType<typeof setTimeout>[] = [];
+let countdownInterval: ReturnType<typeof setInterval> | null = null;
 
-let activePlayers: Map<string, ActivePlayer> = new Map();
-let currentRoundId = 0;
-let waitingStartTime = Date.now();
-let currentHash = "";
-let targetCrashMultiplier = 2.0;
-let lastEmitTime = 0;
+let roundStartTime = Date.now();
+let totalCountdownMs = 7000;
+let flyingStartedAt: number | null = null;
+let onlineCount = Math.floor(Math.random() * 500) + 800;
+let currentEnginePhase: "waiting" | "betting" | "flying" | "crashed" = "waiting";
 
-function generateHash(): string {
-  return crypto.randomBytes(16).toString("hex");
+let emitFn: ((event: string, data: unknown) => void) | null = null;
+
+function pick<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
 }
 
-function generateCrashPoint(): number {
-  const rand = Math.random();
-  if (rand < 0.01) return 1.0;
-  const crash = Math.max(MIN_CRASH, (1 / (1 - rand)) * 0.97);
-  return Math.round(crash * 100) / 100;
+function randInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-function getMultiplierAtTime(ms: number): number {
-  const t = ms / 1000;
-  return Math.round((1.0024 ** (t * 100)) * 100) / 100;
-}
-
-async function startNewRound() {
-  currentHash = generateHash();
-  targetCrashMultiplier = generateCrashPoint();
-
-  try {
-    const [round] = await db.insert(gameRoundsTable).values({
-      phase: "waiting",
-      hash: currentHash,
-      crashedAt: null,
-    }).returning();
-    currentRoundId = round.id;
-
-    state = {
-      phase: "waiting",
-      multiplier: 1.0,
-      crashedAt: null,
-      roundId: currentRoundId,
-      countdownMs: WAITING_DURATION_MS,
-      onlineCount: Math.floor(Math.random() * 500) + 800,
-      playingCount: 0,
-      startTime: null,
-      flyingStartedAt: null,
-    };
-    activePlayers = new Map();
-    waitingStartTime = Date.now();
-  } catch (err) {
-    logger.error({ err }, "Failed to start new round in DB");
-    currentRoundId = Math.floor(Math.random() * 100000);
-    state = {
-      phase: "waiting",
-      multiplier: 1.0,
-      crashedAt: null,
-      roundId: currentRoundId,
-      countdownMs: WAITING_DURATION_MS,
-      onlineCount: Math.floor(Math.random() * 500) + 800,
-      playingCount: 0,
-      startTime: null,
-      flyingStartedAt: null,
-    };
-    activePlayers = new Map();
-    waitingStartTime = Date.now();
-  }
-
-  writeGameState({
+function buildWaitingPayload(): GameState {
+  const elapsed = Date.now() - roundStartTime;
+  const remaining = Math.max(0, totalCountdownMs - elapsed);
+  const game = getCurrentGame();
+  return {
     phase: "waiting",
     multiplier: 1.0,
     crashedAt: null,
-    roundId: currentRoundId,
-    countdownMs: WAITING_DURATION_MS,
-    onlineCount: state.onlineCount,
-    playingCount: state.playingCount,
+    roundId: game?.id ?? 0,
+    countdownMs: remaining,
+    onlineCount,
+    playingCount: getActiveBets().length + botPlayers.size,
+    startTime: null,
     flyingStartedAt: null,
-  });
-  addSimulatedPlayers();
+  };
 }
 
-function addSimulatedPlayers() {
-  const names = [
-    "Peterode", "lagatsa", "Brandd", "Serrias", "yegoro",
-    "Johndo", "Ourmae", "kevinge", "mutuah", "njoro",
-    "njugun", "angira", "kipyego", "wanjohi", "Kamau"
-  ];
+function buildFlyingPayload(elapsedMs: number): GameState {
+  const game = getCurrentGame();
+  const multiplier = elapsedToMultiplier(elapsedMs);
+  return {
+    phase: "flying",
+    multiplier,
+    crashedAt: null,
+    roundId: game?.id ?? 0,
+    countdownMs: null,
+    onlineCount,
+    playingCount: getActiveBets().length + botPlayers.size,
+    startTime: flyingStartedAt,
+    flyingStartedAt,
+  };
+}
 
-  const count = Math.floor(Math.random() * 8) + 5;
+function buildCrashedPayload(crashPoint: number): GameState {
+  const game = getCurrentGame();
+  const crashMult = crashPoint / 100;
+  return {
+    phase: "crashed",
+    multiplier: crashMult,
+    crashedAt: crashMult,
+    roundId: game?.id ?? 0,
+    countdownMs: null,
+    onlineCount,
+    playingCount: 0,
+    startTime: null,
+    flyingStartedAt: null,
+  };
+}
+
+function scheduleBots(): void {
+  for (const t of botBetTimers) clearTimeout(t);
+  botBetTimers = [];
+  botPlayers.clear();
+
+  const count = randInt(4, 12);
+  const usedNames = new Set<string>();
+
   for (let i = 0; i < count; i++) {
-    const name = names[Math.floor(Math.random() * names.length)];
-    const id = `sim-${name}-${Date.now()}-${i}`;
-    const amount = [50, 100, 200, 300, 500, 800, 1000, 1200, 2000, 3000][Math.floor(Math.random() * 10)];
-    activePlayers.set(id, {
-      id,
-      username: name,
-      amount,
-      multiplier: null,
-      profit: null,
-      cashedOut: false,
-      hash: generateHash(),
-    });
+    let name: string;
+    do { name = pick(BOT_NAMES); } while (usedNames.has(name));
+    usedNames.add(name);
+
+    const amount = pick(BOT_AMOUNTS);
+    const delay = randInt(200, totalCountdownMs - 500);
+    const botId = "bot-" + crypto.randomBytes(4).toString("hex");
+
+    const t = setTimeout(() => {
+      if (currentEnginePhase !== "waiting" && currentEnginePhase !== "betting") return;
+      botPlayers.set(botId, {
+        id: botId,
+        username: name,
+        amount,
+        multiplier: null,
+        profit: null,
+        cashedOut: false,
+        hash: crypto.randomBytes(8).toString("hex"),
+      });
+    }, delay);
+
+    botBetTimers.push(t);
   }
 }
 
-function tickGame() {
-  const now = Date.now();
+function scheduleBotCashouts(gameId: number): void {
+  for (const t of botCashoutTimers) clearTimeout(t);
+  botCashoutTimers = [];
 
-  if (state.phase === "waiting") {
-    const elapsed = now - waitingStartTime;
-    const remaining = WAITING_DURATION_MS - elapsed;
-    state.countdownMs = Math.max(0, remaining);
-    state.playingCount = activePlayers.size;
+  for (const [botId, bot] of botPlayers.entries()) {
+    if (bot.cashedOut) continue;
+    const shouldCashOut = Math.random() < 0.65;
+    if (!shouldCashOut) continue;
 
-    // Write countdown every ~500ms during waiting
-    if (now - lastEmitTime >= 500) {
-      lastEmitTime = now;
-      writeGameState({
-        phase: state.phase,
-        multiplier: state.multiplier,
-        crashedAt: state.crashedAt,
-        roundId: state.roundId,
-        countdownMs: state.countdownMs,
-        onlineCount: state.onlineCount,
-        playingCount: state.playingCount,
-        flyingStartedAt: null,
-      });
-    }
+    const cashOutDelay = randInt(500, 18000);
+    const t = setTimeout(() => {
+      const g = getCurrentGame();
+      if (!g || g.id !== gameId || g.state !== "flying") return;
+      const elapsed = Date.now() - (flyingStartedAt ?? Date.now());
+      const mult = elapsedToMultiplier(elapsed);
+      if (mult < 1.05) return;
+      const profit = Math.round((bot.amount * mult - bot.amount) * 100) / 100;
+      bot.cashedOut = true;
+      bot.multiplier = Math.round(mult * 100) / 100;
+      bot.profit = profit;
+    }, cashOutDelay);
 
-    if (remaining <= 0) {
-      state.phase = "flying";
-      state.startTime = now;
-      state.flyingStartedAt = now;
-      state.countdownMs = null;
-      lastEmitTime = 0;
-
-      try {
-        db.update(gameRoundsTable)
-          .set({ phase: "flying", startedAt: new Date() })
-          .where(eq(gameRoundsTable.id, currentRoundId))
-          .catch(() => {});
-      } catch {}
-
-      writeGameState({
-        phase: "flying",
-        multiplier: 1.0,
-        crashedAt: null,
-        roundId: state.roundId,
-        countdownMs: null,
-        onlineCount: state.onlineCount,
-        playingCount: state.playingCount,
-        flyingStartedAt: state.flyingStartedAt,
-      });
-    }
-  } else if (state.phase === "flying") {
-    const elapsed = now - (state.startTime || now);
-    const mult = getMultiplierAtTime(elapsed);
-    state.multiplier = mult;
-    state.playingCount = activePlayers.size;
-
-    for (const [, player] of activePlayers) {
-      if (!player.cashedOut) {
-        if (Math.random() < 0.002 && mult > 1.2) {
-          player.cashedOut = true;
-          player.multiplier = mult;
-          player.profit = Math.round(player.amount * mult - player.amount);
-        }
-      }
-    }
-
-    // Write every 500ms during flying — client interpolates at 60fps locally
-    if (now - lastEmitTime >= 500) {
-      lastEmitTime = now;
-      writeGameState({
-        phase: "flying",
-        multiplier: mult,
-        crashedAt: null,
-        roundId: state.roundId,
-        countdownMs: null,
-        onlineCount: state.onlineCount,
-        playingCount: state.playingCount,
-        flyingStartedAt: state.flyingStartedAt,
-      });
-    }
-
-    if (mult >= targetCrashMultiplier) {
-      state.phase = "crashed";
-      state.crashedAt = targetCrashMultiplier;
-      state.multiplier = targetCrashMultiplier;
-
-      try {
-        db.update(gameRoundsTable)
-          .set({ phase: "crashed", crashedAt: targetCrashMultiplier })
-          .where(eq(gameRoundsTable.id, currentRoundId))
-          .catch(() => {});
-      } catch {}
-
-      writeGameState({
-        phase: "crashed",
-        multiplier: targetCrashMultiplier,
-        crashedAt: targetCrashMultiplier,
-        roundId: state.roundId,
-        countdownMs: null,
-        onlineCount: state.onlineCount,
-        playingCount: state.playingCount,
-        flyingStartedAt: null,
-      });
-
-      setTimeout(() => {
-        startNewRound();
-      }, 4000);
-    }
+    botCashoutTimers.push(t);
   }
+}
+
+export function initEngine(broadcastFn: (event: string, data: unknown) => void): void {
+  emitFn = broadcastFn;
+
+  setBroadcast((event, data) => {
+    if (event === "1501") {
+      const { wait_ms } = data as { id: number; wait_ms: number };
+      roundStartTime = Date.now();
+      totalCountdownMs = wait_ms + 5000;
+      flyingStartedAt = null;
+      currentEnginePhase = "waiting";
+      onlineCount = Math.floor(Math.random() * 500) + 800;
+
+      scheduleBots();
+
+      if (countdownInterval) clearInterval(countdownInterval);
+      countdownInterval = setInterval(() => {
+        const g = getCurrentGame();
+        if (!g || g.state === "flying" || g.state === "crashed") {
+          if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+          return;
+        }
+        emitFn?.("game:state", buildWaitingPayload());
+      }, 500);
+
+      emitFn("game:newRound", {
+        roundId: (data as { id: number }).id,
+        countdownMs: totalCountdownMs,
+      });
+
+    } else if (event === "betting_open") {
+      currentEnginePhase = "betting";
+
+    } else if (event === "1502") {
+      if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+      currentEnginePhase = "flying";
+      flyingStartedAt = Date.now();
+
+      const game = getCurrentGame();
+      if (game) scheduleBotCashouts(game.id);
+
+      emitFn("game:state", buildFlyingPayload(0));
+
+    } else if (event === "1503") {
+      const elapsedMs = data as number;
+      emitFn("game:state", buildFlyingPayload(elapsedMs));
+
+    } else if (event === "1504") {
+      for (const t of botCashoutTimers) clearTimeout(t);
+      botCashoutTimers = [];
+      currentEnginePhase = "crashed";
+
+      const { gameCrash } = data as { gameCrash: number; gameHash: string; elapsed: number; gameId: number };
+      const crashX100 = Math.round(gameCrash * 100);
+      emitFn("game:crash", buildCrashedPayload(crashX100));
+
+    } else if (event === "1505") {
+      emitFn("game:cashout", data);
+    } else if (event === "1507") {
+      emitFn("game:bet", data);
+    }
+  });
+
+  initGameEngine().catch(err => logger.error({ err }, "Failed to init game engine"));
 }
 
 export function getState(): GameState {
-  return { ...state };
-}
+  const game = getCurrentGame();
 
-export function getActivePlayers(): ActivePlayer[] {
-  return Array.from(activePlayers.values());
-}
-
-export async function placeBet(playerId: string, amount: number, autoCashOut?: number | null): Promise<{ betId: number; balance: number }> {
-  if (state.phase !== "waiting") {
-    throw new Error("Bets can only be placed during the waiting phase");
+  if (!game) {
+    return {
+      phase: "waiting",
+      multiplier: 1.0,
+      crashedAt: null,
+      roundId: 0,
+      countdownMs: totalCountdownMs,
+      onlineCount,
+      playingCount: 0,
+      startTime: null,
+      flyingStartedAt: null,
+    };
   }
 
-  let username = "Player";
-  let currentBalanceKes = 0;
-
-  if (isRealUser(playerId)) {
-    const userId = parseInt(playerId);
-    const [wallet] = await db.select({ balanceCents: wallets.balanceCents }).from(wallets).where(eq(wallets.userId, userId));
-    if (!wallet) throw new Error("Wallet not found. Please contact support.");
-    currentBalanceKes = wallet.balanceCents / 100;
-    if (currentBalanceKes < amount) throw new Error("Insufficient balance");
-    const amountCents = Math.round(amount * 100);
-    await db.update(wallets).set({ balanceCents: wallet.balanceCents - amountCents }).where(eq(wallets.userId, userId));
-    const [user] = await db.select({ username: users.username }).from(users).where(eq(users.id, userId));
-    username = user?.username ?? "Player";
-    const newBalance = (wallet.balanceCents - amountCents) / 100;
-    const [bet] = await db.insert(betsTable).values({ roundId: currentRoundId, playerId, amount, autoCashOut: autoCashOut ?? null, cashedOut: false }).returning();
-    activePlayers.set(playerId, { id: playerId, username, amount, multiplier: null, profit: null, cashedOut: false, hash: generateHash() });
-    return { betId: bet.id, balance: newBalance };
+  if (game.state === "waiting" || game.state === "betting") {
+    return buildWaitingPayload();
   }
 
-  let player = await db.query.playersTable.findFirst({ where: eq(playersTable.id, playerId) });
-  if (!player) throw new Error("Player not found");
-  if (player.balance < amount) throw new Error("Insufficient balance");
+  if (game.state === "flying") {
+    return buildFlyingPayload(game.elapsedMs);
+  }
 
-  const newBalance = player.balance - amount;
-  await db.update(playersTable).set({ balance: newBalance }).where(eq(playersTable.id, playerId));
+  return buildCrashedPayload(game.crashPoint ?? 100);
+}
 
-  const [bet] = await db.insert(betsTable).values({
-    roundId: currentRoundId,
-    playerId,
-    amount,
-    autoCashOut: autoCashOut ?? null,
-    cashedOut: false,
-  }).returning();
+export function getActivePlayers() {
+  const engineBets = getActiveBets();
 
-  activePlayers.set(playerId, {
-    id: playerId,
-    username: player.username,
-    amount,
-    multiplier: null,
-    profit: null,
-    cashedOut: false,
-    hash: generateHash(),
+  const realPlayers = engineBets.map(bet => {
+    const cashedOut = bet.cashedOutAt !== null;
+    const cashMultX100 = bet.cashedOutAt ?? null;
+    const cashMult = cashMultX100 !== null ? cashMultX100 / 100 : null;
+    const profit = cashedOut && cashMult !== null
+      ? Math.round((bet.amountCents * cashMult - bet.amountCents) / 100 * 100) / 100
+      : null;
+
+    return {
+      id: String(bet.userId),
+      username: bet.username,
+      amount: bet.amountCents / 100,
+      multiplier: cashMult,
+      profit,
+      cashedOut,
+      hash: crypto.createHash("sha256").update(String(bet.userId)).digest("hex").slice(0, 16),
+    };
   });
 
-  return { betId: bet.id, balance: newBalance };
+  const bots = Array.from(botPlayers.values());
+
+  return [...realPlayers, ...bots];
 }
 
-export async function cashOut(betId: number, playerId: string): Promise<{ profit: number; multiplier: number; balance: number }> {
-  if (state.phase !== "flying") {
-    throw new Error("Can only cash out during flying phase");
+export async function placeBet(
+  playerId: string,
+  amountKes: number,
+  autoCashOut?: number | null
+): Promise<{ betId: number; balance: number }> {
+  const userId = parseInt(playerId, 10);
+  if (isNaN(userId)) {
+    throw new Error("Authentication required to place a bet");
   }
 
-  const bet = await db.query.betsTable.findFirst({
-    where: eq(betsTable.id, betId)
-  });
+  const [user] = await db
+    .select({ username: users.username })
+    .from(users)
+    .where(eq(users.id, userId));
+  if (!user) throw new Error("User not found");
 
-  if (!bet || bet.playerId !== playerId) {
-    throw new Error("Bet not found");
-  }
-  if (bet.cashedOut) {
-    throw new Error("Already cashed out");
-  }
+  const amountCents = Math.round(amountKes * 100);
+  const autoCashoutAt = autoCashOut ? Math.round(autoCashOut * 100) : null;
 
-  const mult = state.multiplier;
-  const profit = Math.round((bet.amount * mult - bet.amount) * 100) / 100;
+  const result = await enginePlaceBet(userId, user.username, amountCents, autoCashoutAt);
+  if (!result.success) throw new Error(result.error ?? "Failed to place bet");
 
-  await db.update(betsTable).set({
-    cashedOut: true,
-    cashOutMultiplier: mult,
-    profit,
-  }).where(eq(betsTable.id, betId));
+  const [wallet] = await db
+    .select({ balanceCents: wallets.balanceCents })
+    .from(wallets)
+    .where(eq(wallets.userId, userId));
 
-  let newBalance = 0;
-  if (isRealUser(playerId)) {
-    const userId = parseInt(playerId);
-    const [wallet] = await db.select({ balanceCents: wallets.balanceCents }).from(wallets).where(eq(wallets.userId, userId));
-    const payoutCents = Math.round((bet.amount + profit) * 100);
-    newBalance = ((wallet?.balanceCents ?? 0) + payoutCents) / 100;
-    await db.update(wallets).set({ balanceCents: (wallet?.balanceCents ?? 0) + payoutCents }).where(eq(wallets.userId, userId));
-  } else {
-    const player = await db.query.playersTable.findFirst({ where: eq(playersTable.id, playerId) });
-    newBalance = (player?.balance ?? 0) + bet.amount + profit;
-    await db.update(playersTable).set({ balance: newBalance }).where(eq(playersTable.id, playerId));
-  }
+  return { betId: result.betId!, balance: wallet ? wallet.balanceCents / 100 : 0 };
+}
 
-  const activePlayer = activePlayers.get(playerId);
-  if (activePlayer) {
-    activePlayer.cashedOut = true;
-    activePlayer.multiplier = mult;
-    activePlayer.profit = profit;
-  }
+export async function cashOut(
+  betId: number,
+  playerId: string
+): Promise<{ profit: number; multiplier: number; balance: number }> {
+  const userId = parseInt(playerId, 10);
+  if (isNaN(userId)) throw new Error("Authentication required");
 
-  return { profit, multiplier: mult, balance: newBalance };
+  const [bet] = await db
+    .select()
+    .from(bets)
+    .where(and(eq(bets.id, betId), eq(bets.userId, userId)));
+  if (!bet) throw new Error("Bet not found");
+
+  const game = getCurrentGame();
+  if (!game) throw new Error("No active game");
+
+  const result = await processCashout(userId, game.id);
+  if (!result.success) throw new Error(result.error ?? "Failed to cash out");
+
+  const [wallet] = await db
+    .select({ balanceCents: wallets.balanceCents })
+    .from(wallets)
+    .where(eq(wallets.userId, userId));
+
+  const payoutCents = result.payoutCents!;
+  const amountCents = Number(bet.amountCents);
+  const multiplier = Math.round((payoutCents / amountCents) * 100) / 100;
+  const profit = Math.round((payoutCents - amountCents) / 100 * 100) / 100;
+
+  return { profit, multiplier, balance: wallet ? wallet.balanceCents / 100 : 0 };
 }
 
 export async function addBot(botId: string, username: string, amount: number): Promise<void> {
-  if (state.phase !== "waiting") return;
-  if (activePlayers.has(botId)) return;
-  activePlayers.set(botId, {
+  if (currentEnginePhase !== "waiting" && currentEnginePhase !== "betting") return;
+  if (botPlayers.has(botId)) return;
+  botPlayers.set(botId, {
     id: botId,
     username,
     amount,
     multiplier: null,
     profit: null,
     cashedOut: false,
-    hash: generateHash(),
+    hash: crypto.randomBytes(8).toString("hex"),
   });
 }
 
-export async function getHistory(limit = 20): Promise<typeof gameRoundsTable.$inferSelect[]> {
+export async function getHistory(limit = 20) {
   try {
-    return await db.select().from(gameRoundsTable)
-      .where(eq(gameRoundsTable.phase, "crashed"))
-      .orderBy(desc(gameRoundsTable.id))
+    const rows = await db
+      .select()
+      .from(games)
+      .where(eq(games.state, "crashed"))
+      .orderBy(desc(games.id))
       .limit(limit);
+
+    return rows.map(g => ({
+      id: g.id,
+      crashedAt: g.crashPoint ? g.crashPoint / 100 : 1.0,
+      hash: g.hash,
+      createdAt: g.createdAt,
+    }));
   } catch {
     return [];
   }
@@ -396,34 +393,27 @@ export async function getHistory(limit = 20): Promise<typeof gameRoundsTable.$in
 
 export async function getLeaderboardFromDB(): Promise<Array<{ username: string; multiplier: number; amount: number }>> {
   try {
-    const topBets = await db.select({
-      playerId: betsTable.playerId,
-      amount: betsTable.amount,
-      cashOutMultiplier: betsTable.cashOutMultiplier,
-      profit: betsTable.profit,
-    })
-      .from(betsTable)
-      .where(and(eq(betsTable.cashedOut, true)))
-      .orderBy(desc(betsTable.cashOutMultiplier))
+    const topBets = await db
+      .select()
+      .from(bets)
+      .where(eq(bets.state, "cashed_out"))
+      .orderBy(desc(bets.cashedOutAt))
       .limit(20);
 
     const results: Array<{ username: string; multiplier: number; amount: number }> = [];
-
     for (const bet of topBets) {
-      if (!bet.cashOutMultiplier) continue;
-      let username = "Player";
-      if (isRealUser(bet.playerId)) {
-        const userId = parseInt(bet.playerId);
-        const [user] = await db.select({ username: users.username }).from(users).where(eq(users.id, userId));
-        username = user?.username ?? "Player";
-      } else {
-        const player = await db.query.playersTable.findFirst({ where: eq(playersTable.id, bet.playerId) });
-        username = player?.username ?? bet.playerId.replace(/sim-/, "").split("-")[0] ?? "Bot";
-      }
-      results.push({ username, multiplier: bet.cashOutMultiplier, amount: bet.amount });
+      if (!bet.cashedOutAt) continue;
+      const [user] = await db
+        .select({ username: users.username })
+        .from(users)
+        .where(eq(users.id, bet.userId));
+      results.push({
+        username: user?.username ?? "Player",
+        multiplier: bet.cashedOutAt / 100,
+        amount: Number(bet.amountCents) / 100,
+      });
     }
-
-    return results;
+    return results.length > 0 ? results : getFakeLeaderboard();
   } catch {
     return getFakeLeaderboard();
   }
@@ -432,8 +422,7 @@ export async function getLeaderboardFromDB(): Promise<Array<{ username: string; 
 function getFakeLeaderboard() {
   const names = [
     "Peterode", "lagatsa", "Brandd", "Serrias", "yegoro",
-    "Johndo", "Ourmae", "Peterdc", "kevinge", "mutuah",
-    "njoro.a", "njugun", "angira"
+    "Johndo", "Ourmae", "kevinge", "mutuah", "njoro.a", "njugun", "angira",
   ];
   return names.map(n => ({
     username: n,
@@ -445,6 +434,3 @@ function getFakeLeaderboard() {
 export function getLeaderboard() {
   return getFakeLeaderboard();
 }
-
-startNewRound();
-setInterval(tickGame, 100);

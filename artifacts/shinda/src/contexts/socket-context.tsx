@@ -27,8 +27,7 @@ const SocketContext = createContext<SocketContextValue>({
 });
 
 function calcMultiplier(ms: number): number {
-  const t = ms / 1000;
-  return Math.round((1.0024 ** (t * 100)) * 100) / 100;
+  return Math.round(Math.exp(ms / 35000) * 100) / 100;
 }
 
 export function SocketProvider({ children }: { children: ReactNode }) {

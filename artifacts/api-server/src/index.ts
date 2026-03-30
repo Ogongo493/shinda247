@@ -1,6 +1,8 @@
 import { createServer } from "http";
 import app from "./app";
 import { logger } from "./lib/logger";
+import { initSocketIO, broadcastToClients } from "./lib/socket";
+import { initEngine } from "./lib/gameEngine";
 
 const rawPort = process.env["PORT"];
 
@@ -17,6 +19,12 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 const httpServer = createServer(app);
+
+initSocketIO(httpServer);
+
+initEngine((event, data) => {
+  broadcastToClients(event, data);
+});
 
 httpServer.listen(port, (err?: Error) => {
   if (err) {

@@ -21,14 +21,6 @@ export function initSocketIO(httpServer: HttpServer): SocketIOServer {
   return io;
 }
 
-export function emitGameState(payload: object) {
-  io?.emit("game:state", payload);
-}
-
-export function emitGameCrash(payload: object) {
-  io?.emit("game:crash", payload);
-}
-
-export function emitNewRound(payload: object) {
-  io?.emit("game:newRound", payload);
+export function broadcastToClients(event: string, data: unknown): void {
+  io?.emit(event, data);
 }
