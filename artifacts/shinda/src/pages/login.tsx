@@ -1,18 +1,16 @@
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { Flame } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
-import { auth } from "@/lib/firebase";
-import { RecaptchaVerifier, signInWithPhoneNumber, type ConfirmationResult } from "firebase/auth";
 
-function normalizeToE164(phone: string): string {
+function normalizePhone(phone: string): string {
   const digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("254")) return `+${digits}`;
-  if (digits.startsWith("0")) return `+254${digits.slice(1)}`;
-  return `+${digits}`;
+  if (digits.startsWith("254")) return digits;
+  if (digits.startsWith("0")) return "254" + digits.slice(1);
+  return digits;
 }
 
 export default function LoginPage() {
@@ -24,33 +22,25 @@ export default function LoginPage() {
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
-  const confirmationRef = useRef<ConfirmationResult | null>(null);
-  const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
-  const recaptchaDivRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    return () => {
-      recaptchaRef.current?.clear();
-    };
-  }, []);
 
   async function handleSendOtp(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     try {
-      if (!recaptchaRef.current) {
-        recaptchaRef.current = new RecaptchaVerifier(auth, recaptchaDivRef.current!, {
-          size: "invisible",
-        });
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: normalizePhone(phone) }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Error", description: data.error ?? "Failed to send OTP", variant: "destructive" });
+        return;
       }
-      const phoneE164 = normalizeToE164(phone);
-      confirmationRef.current = await signInWithPhoneNumber(auth, phoneE164, recaptchaRef.current);
       setStep("otp");
-      toast({ title: "OTP Sent", description: "Check your phone for the verification code." });
-    } catch (err: any) {
-      recaptchaRef.current?.clear();
-      recaptchaRef.current = null;
-      toast({ title: "Error", description: err.message ?? "Failed to send OTP", variant: "destructive" });
+      toast({ title: "OTP Sent", description: "Check your phone or server logs for the code." });
+    } catch {
+      toast({ title: "Error", description: "Network error. Please try again.", variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -58,26 +48,22 @@ export default function LoginPage() {
 
   async function handleVerifyOtp(e: React.FormEvent) {
     e.preventDefault();
-    if (!confirmationRef.current) return;
     setLoading(true);
     try {
-      const credential = await confirmationRef.current.confirm(otp);
-      const idToken = await credential.user.getIdToken();
-
-      const res = await fetch("/api/auth/firebase-verify", {
+      const res = await fetch("/api/auth/verify-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idToken }),
+        body: JSON.stringify({ phone: normalizePhone(phone), otp }),
       });
       const data = await res.json();
       if (!res.ok) {
-        toast({ title: "Error", description: data.error, variant: "destructive" });
+        toast({ title: "Error", description: data.error ?? "Invalid OTP", variant: "destructive" });
         return;
       }
       login(data.token, data.user);
       navigate("/");
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message ?? "Invalid code", variant: "destructive" });
+    } catch {
+      toast({ title: "Error", description: "Network error. Please try again.", variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -85,7 +71,6 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div ref={recaptchaDivRef} />
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
           <div className="flex items-center justify-center gap-2 text-primary font-display font-bold text-3xl tracking-tighter mb-2">
@@ -117,7 +102,9 @@ export default function LoginPage() {
           ) : (
             <form onSubmit={handleVerifyOtp} className="space-y-4">
               <div className="space-y-2">
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Enter OTP</label>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                  Enter OTP sent to {phone}
+                </label>
                 <Input
                   type="text"
                   inputMode="numeric"
@@ -126,13 +113,18 @@ export default function LoginPage() {
                   value={otp}
                   onChange={e => setOtp(e.target.value)}
                   className="h-12 text-base text-center tracking-widest text-xl font-mono"
+                  autoFocus
                   required
                 />
               </div>
               <Button type="submit" className="w-full h-12 text-base" disabled={loading}>
                 {loading ? "Verifying..." : "Verify & Login"}
               </Button>
-              <button type="button" onClick={() => { setStep("phone"); setOtp(""); }} className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors">
+              <button
+                type="button"
+                onClick={() => { setStep("phone"); setOtp(""); }}
+                className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
                 ← Change phone number
               </button>
             </form>

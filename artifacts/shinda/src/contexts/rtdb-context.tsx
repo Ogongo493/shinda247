@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { ref, onValue } from "firebase/database";
-import { database } from "@/lib/firebase";
+import { io, type Socket } from "socket.io-client";
 
 export type GamePhase = "waiting" | "flying" | "crashed";
 
@@ -28,11 +27,11 @@ const RtdbContext = createContext<RtdbContextValue>({
 });
 
 function calcMultiplier(ms: number): number {
-  const t = ms / 1000;
-  return Math.round((1.0024 ** (t * 100)) * 100) / 100;
+  return Math.round(Math.exp(ms / 35000) * 100) / 100;
 }
 
 export function RtdbProvider({ children }: { children: ReactNode }) {
+  const socketRef = useRef<Socket | null>(null);
   const [connected, setConnected] = useState(false);
   const [gameState, setGameState] = useState<GameStatePayload | null>(null);
   const [smoothMultiplier, setSmoothMultiplier] = useState(1.0);
@@ -43,7 +42,6 @@ export function RtdbProvider({ children }: { children: ReactNode }) {
     gameStateRef.current = gameState;
   }, [gameState]);
 
-  // 60fps smooth multiplier interpolation
   useEffect(() => {
     function tick() {
       const gs = gameStateRef.current;
@@ -59,25 +57,44 @@ export function RtdbProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Subscribe to Firebase Realtime Database
   useEffect(() => {
-    const gameStateRef = ref(database, "/game/state");
-    const unsubscribe = onValue(
-      gameStateRef,
-      (snapshot) => {
-        const data: GameStatePayload | null = snapshot.val();
-        if (!data) return;
-        setConnected(true);
-        setGameState(data);
-        if (data.phase !== "flying") {
-          setSmoothMultiplier(data.multiplier ?? 1.0);
-        }
-      },
-      () => {
-        setConnected(false);
-      },
-    );
-    return () => unsubscribe();
+    const socket = io("/", {
+      path: "/socket.io",
+      transports: ["websocket", "polling"],
+    });
+    socketRef.current = socket;
+
+    socket.on("connect", () => setConnected(true));
+    socket.on("disconnect", () => setConnected(false));
+
+    socket.on("game:state", (data: GameStatePayload) => {
+      setGameState(data);
+      if (data.phase !== "flying") {
+        setSmoothMultiplier(data.multiplier ?? 1.0);
+      }
+    });
+
+    socket.on("game:crash", (data: GameStatePayload) => {
+      setGameState(data);
+      setSmoothMultiplier(data.multiplier ?? 1.0);
+    });
+
+    socket.on("game:newRound", (data: Partial<GameStatePayload>) => {
+      setGameState(prev => ({
+        ...(prev ?? { multiplier: 1.0, crashedAt: null, onlineCount: 0, playingCount: 0 }),
+        phase: "waiting",
+        roundId: data.roundId ?? prev?.roundId ?? 0,
+        countdownMs: data.countdownMs ?? 7000,
+        multiplier: 1.0,
+        crashedAt: null,
+        flyingStartedAt: null,
+      }));
+      setSmoothMultiplier(1.0);
+    });
+
+    return () => {
+      socket.disconnect();
+    };
   }, []);
 
   return (

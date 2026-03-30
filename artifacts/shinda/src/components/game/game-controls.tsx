@@ -5,7 +5,7 @@ import { Hash, Settings2 } from "lucide-react";
 import type { GameState, ActivePlayer } from "@workspace/api-client-react";
 import { usePlaceBet, useCashOut } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/contexts/auth-context";
+import { useRtdb } from "@/contexts/rtdb-context";
 
 interface GameControlsProps {
   userId: number;
@@ -19,7 +19,7 @@ export function GameControls({ userId, gameState, activePlayers }: GameControlsP
   const [currentBetId, setCurrentBetId] = useState<number | null>(null);
   const prevRoundId = useRef<number | null>(null);
   const { toast } = useToast();
-  const { token } = useAuth();
+  const { smoothMultiplier } = useRtdb();
 
   const placeBetMutation = usePlaceBet();
   const cashOutMutation = useCashOut();
@@ -67,6 +67,7 @@ export function GameControls({ userId, gameState, activePlayers }: GameControlsP
   };
 
   const isPending = placeBetMutation.isPending || cashOutMutation.isPending;
+  const liveWin = (smoothMultiplier * parseFloat(amount || "0")).toFixed(2);
 
   return (
     <div className="w-full bg-card rounded-2xl border border-border/50 p-4 md:p-6 shadow-xl flex flex-col md:flex-row gap-4 lg:gap-8 shrink-0">
@@ -121,7 +122,7 @@ export function GameControls({ userId, gameState, activePlayers }: GameControlsP
             onClick={handleAction}
             disabled={isPending}
           >
-            {isPending ? "CASHING OUT..." : `CASH OUT ${(gameState!.multiplier * parseFloat(amount)).toFixed(2)}`}
+            {isPending ? "CASHING OUT..." : `CASH OUT KES ${liveWin}`}
           </Button>
         ) : phase === "waiting" ? (
           <Button
@@ -131,6 +132,15 @@ export function GameControls({ userId, gameState, activePlayers }: GameControlsP
             disabled={hasBet || isPending}
           >
             {isPending ? "PLACING BET..." : hasBet ? "BET PLACED ✓" : "PLACE BET"}
+          </Button>
+        ) : phase === "flying" && hasBet ? (
+          <Button
+            size="xl"
+            variant="success"
+            className="w-full h-20 text-xl opacity-50"
+            disabled
+          >
+            AUTO CASHOUT SET ✓
           </Button>
         ) : (
           <Button
