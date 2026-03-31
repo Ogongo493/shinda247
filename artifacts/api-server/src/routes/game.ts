@@ -19,13 +19,16 @@ import { requireAuth } from "./auth";
 
 const router: IRouter = Router();
 
+const MIN_BET_KES = 50;
+const MAX_BET_KES = 50_000;
+
 router.get("/game/state", (_req, res) => {
   const state = engine.getState();
   const data = GetGameStateResponse.parse({
-    phase: state.phase,
+    phase:      state.phase,
     multiplier: state.multiplier,
-    crashedAt: state.crashedAt ?? null,
-    roundId: state.roundId,
+    crashedAt:  state.crashedAt ?? null,
+    roundId:    state.roundId,
     countdownMs: state.countdownMs ?? null,
     onlineCount: state.onlineCount,
     playingCount: state.playingCount,
@@ -38,26 +41,39 @@ router.get("/game/history", async (_req, res) => {
   const rounds = await engine.getHistory(limit);
   const data = GetGameHistoryResponse.parse(
     rounds.map(r => ({
-      id: r.id,
+      id:        r.id,
       crashedAt: r.crashedAt ?? 1.0,
-      hash: r.hash,
+      hash:      r.hash,
       createdAt: r.createdAt.toISOString(),
     }))
   );
   res.json(data);
 });
 
-router.post("/game/bet", async (req, res) => {
+router.post("/game/bet", requireAuth, async (req: Request, res) => {
+  const user = (req as any).user as { sub: number; username: string };
+
   const body = PlaceBetBody.safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: "Invalid request body" });
     return;
   }
 
+  const amount = body.data.amount;
+
+  if (amount < MIN_BET_KES) {
+    res.status(400).json({ error: `Minimum bet is KES ${MIN_BET_KES}` });
+    return;
+  }
+  if (amount > MAX_BET_KES) {
+    res.status(400).json({ error: `Maximum bet is KES ${MAX_BET_KES}` });
+    return;
+  }
+
   try {
     const result = await engine.placeBet(
-      body.data.playerId,
-      body.data.amount,
+      String(user.sub),
+      amount,
       body.data.autoCashOut ?? null
     );
     const data = PlaceBetResponse.parse({ success: true, betId: result.betId, balance: result.balance });
@@ -67,7 +83,9 @@ router.post("/game/bet", async (req, res) => {
   }
 });
 
-router.post("/game/cashout", async (req, res) => {
+router.post("/game/cashout", requireAuth, async (req: Request, res) => {
+  const user = (req as any).user as { sub: number };
+
   const body = CashOutBody.safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: "Invalid request body" });
@@ -75,7 +93,7 @@ router.post("/game/cashout", async (req, res) => {
   }
 
   try {
-    const result = await engine.cashOut(body.data.betId, body.data.playerId);
+    const result = await engine.cashOut(body.data.betId, String(user.sub));
     const data = CashOutResponse.parse({ success: true, ...result });
     res.json(data);
   } catch (err: any) {
@@ -87,13 +105,13 @@ router.get("/players", (_req, res) => {
   const players = engine.getActivePlayers();
   const data = GetActivePlayersResponse.parse(
     players.map(p => ({
-      id: p.id,
-      username: p.username,
-      amount: p.amount,
+      id:        p.id,
+      username:  p.username,
+      amount:    p.amount,
       multiplier: p.multiplier ?? null,
-      profit: p.profit ?? null,
+      profit:    p.profit ?? null,
       cashedOut: p.cashedOut,
-      hash: p.hash,
+      hash:      p.hash,
     }))
   );
   res.json(data);
@@ -138,13 +156,13 @@ router.get("/notifications", requireAuth, async (req: Request, res) => {
       .limit(50);
 
     const notifications = userTransactions.map(tx => ({
-      id: tx.id,
-      type: tx.type,
-      status: tx.status,
+      id:          tx.id,
+      type:        tx.type,
+      status:      tx.status,
       amountCents: tx.amountCents,
       description: tx.description,
-      mpesaRef: tx.mpesaRef,
-      createdAt: tx.createdAt.toISOString(),
+      mpesaRef:    tx.mpesaRef,
+      createdAt:   tx.createdAt.toISOString(),
     }));
 
     res.json(notifications);

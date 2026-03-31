@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import { RtdbProvider } from "@/contexts/rtdb-context";
+import { setAuthTokenGetter } from "@workspace/api-client-react";
 import Home from "@/pages/home";
 import LoginPage from "@/pages/login";
 import RegisterPage from "@/pages/register";
@@ -12,6 +13,7 @@ import HistoryPage from "@/pages/history";
 import PlayersPage from "@/pages/players";
 import NotificationsPage from "@/pages/notifications";
 import NotFound from "@/pages/not-found";
+import { useEffect } from "react";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,6 +38,14 @@ function GuestRoute({ component: Component }: { component: React.ComponentType }
   return <Component />;
 }
 
+function AuthTokenWirer() {
+  const { token } = useAuth();
+  useEffect(() => {
+    setAuthTokenGetter(() => token);
+  }, [token]);
+  return null;
+}
+
 function Router() {
   return (
     <Switch>
@@ -56,6 +66,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <AuthProvider>
+          <AuthTokenWirer />
           <RtdbProvider>
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
               <Router />

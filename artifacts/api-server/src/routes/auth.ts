@@ -6,7 +6,7 @@ import { eq, and, gt } from "drizzle-orm";
 import { z } from "zod";
 import { signJwt, verifyJwt, extractToken, type JwtPayload } from "../lib/jwt";
 import { logger } from "../lib/logger";
-import { adminAuth } from "../lib/firebase-admin";
+import { sendOtp } from "../lib/sms";
 
 const router: IRouter = Router();
 
@@ -22,8 +22,13 @@ function generateOtp(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-function hashPassword(pwd: string): string {
-  return crypto.createHash("sha256").update(pwd + "shinda247salt").digest("hex");
+async function dispatchOtp(phone: string, otp: string, context: string): Promise<void> {
+  const smsResult = await sendOtp(phone, otp);
+  if (smsResult.success) {
+    logger.info({ phone, context }, "OTP sent via Africa's Talking SMS");
+  } else {
+    logger.warn({ phone, otp, context, error: smsResult.error }, "SMS delivery failed — OTP logged for dev");
+  }
 }
 
 const RegisterSchema = z.object({
@@ -55,21 +60,21 @@ router.post("/register", async (req: Request, res: Response) => {
     return;
   }
 
-  const otp      = generateOtp();
+  const otp       = generateOtp();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
   await db.insert(otpCodes).values({ phone, code: otp, expiresAt });
 
-  logger.info({ phone, otp }, "OTP for registration (dev: logged, prod: send via SMS)");
+  await dispatchOtp(phone, otp, "register");
+
+  const pendingData = { phone, username };
+  (req as any).app.locals.pendingRegistrations = (req as any).app.locals.pendingRegistrations ?? {};
+  (req as any).app.locals.pendingRegistrations[phone] = pendingData;
 
   res.json({
     message: "OTP sent to your phone. Valid for 10 minutes.",
     phone,
   });
-
-  const pendingData = { phone, username };
-  (req as any).app.locals.pendingRegistrations = (req as any).app.locals.pendingRegistrations ?? {};
-  (req as any).app.locals.pendingRegistrations[phone] = pendingData;
 });
 
 const VerifyOtpSchema = z.object({
@@ -97,14 +102,15 @@ router.post("/verify-otp", async (req: Request, res: Response) => {
     return;
   }
 
-  if (record.attempts >= 3) {
+  if (record.attempts >= 5) {
     res.status(429).json({ error: "Too many OTP attempts. Request a new code." });
     return;
   }
 
   if (record.code !== body.data.otp) {
     await db.update(otpCodes).set({ attempts: record.attempts + 1 }).where(eq(otpCodes.id, record.id));
-    res.status(400).json({ error: "Invalid OTP" });
+    const remaining = 5 - (record.attempts + 1);
+    res.status(400).json({ error: `Invalid OTP. ${remaining} attempt${remaining !== 1 ? "s" : ""} remaining.` });
     return;
   }
 
@@ -150,68 +156,13 @@ router.post("/login", async (req: Request, res: Response) => {
   const phone = normalizePhone(body.data.phone);
 
   const otp       = generateOtp();
-  const expiresAt  = new Date(Date.now() + 10 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
   await db.insert(otpCodes).values({ phone, code: otp, expiresAt });
 
-  logger.info({ phone, otp }, "OTP for login (dev: logged, prod: send via SMS)");
+  await dispatchOtp(phone, otp, "login");
 
-  res.json({
-    message: "OTP sent to your phone.",
-  });
-});
-
-const FirebaseVerifySchema = z.object({
-  idToken:  z.string().min(10),
-  username: z.string().min(3).max(32).regex(/^[a-zA-Z0-9_]+$/, "Username: letters, digits, underscores only").optional(),
-});
-
-router.post("/firebase-verify", async (req: Request, res: Response) => {
-  const body = FirebaseVerifySchema.safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ error: body.error.issues[0]?.message ?? "Invalid request" });
-    return;
-  }
-
-  let decoded: Awaited<ReturnType<typeof adminAuth.verifyIdToken>>;
-  try {
-    decoded = await adminAuth.verifyIdToken(body.data.idToken);
-  } catch {
-    res.status(401).json({ error: "Invalid Firebase token" });
-    return;
-  }
-
-  const rawPhone = decoded.phone_number;
-  if (!rawPhone) {
-    res.status(400).json({ error: "No phone number in token" });
-    return;
-  }
-
-  const phone = normalizePhone(rawPhone.replace(/^\+/, ""));
-
-  let user = await db.query.users.findFirst({ where: eq(users.phone, phone) });
-
-  if (!user) {
-    const desiredUsername = body.data.username ?? `Player${Math.floor(Math.random() * 9999)}`;
-
-    const existingUsername = await db.select({ id: users.id }).from(users).where(eq(users.username, desiredUsername));
-    const username = existingUsername.length > 0
-      ? `${desiredUsername}${Math.floor(Math.random() * 999)}`
-      : desiredUsername;
-
-    [user] = await db.insert(users).values({ phone, username, isActive: true }).returning();
-    await db.insert(wallets).values({ userId: user.id, balanceCents: 0 });
-    logger.info({ userId: user.id, phone }, "New user registered via Firebase");
-  }
-
-  const token = signJwt({
-    sub: user.id,
-    phone: user.phone,
-    username: user.username,
-    isAdmin: user.isAdmin,
-  });
-
-  res.json({ token, user: { id: user.id, phone: user.phone, username: user.username, isAdmin: user.isAdmin } });
+  res.json({ message: "OTP sent to your phone." });
 });
 
 router.get("/me", requireAuth, async (req: Request, res: Response) => {
