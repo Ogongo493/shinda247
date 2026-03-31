@@ -78139,6 +78139,12 @@ function scheduleBots() {
         cashedOut: false,
         hash: crypto2.randomBytes(8).toString("hex")
       });
+      emitFn?.("game:bet", {
+        playerId: botId,
+        username: name,
+        amount,
+        isBot: true
+      });
     }, delay);
     botBetTimers.push(t);
   }
@@ -78161,6 +78167,13 @@ function scheduleBotCashouts(gameId) {
       bot.cashedOut = true;
       bot.multiplier = Math.round(mult * 100) / 100;
       bot.profit = profit;
+      emitFn?.("game:cashout", {
+        playerId: botId,
+        username: bot.username,
+        amount: bot.amount,
+        multiplier: bot.multiplier,
+        isBot: true
+      });
     }, cashOutDelay);
     botCashoutTimers.push(t);
   }
@@ -78215,9 +78228,33 @@ function initEngine(broadcastFn) {
       const crashX100 = Math.round(gameCrash * 100);
       emitFn("game:crash", buildCrashedPayload(crashX100));
     } else if (event === "1505") {
-      emitFn("game:cashout", data);
+      const d = data;
+      const activeBets2 = getActiveBets();
+      for (const [key, val] of Object.entries(d)) {
+        if (key === "0") continue;
+        const userId = parseInt(key, 10);
+        if (isNaN(userId)) continue;
+        const multiplier = typeof val === "object" && "0" in val ? val["0"] : null;
+        if (multiplier === null) continue;
+        const bet = activeBets2.find((b) => b.userId === userId);
+        emitFn("game:cashout", {
+          playerId: key,
+          username: bet?.username ?? "Player",
+          amount: bet ? bet.amountCents / 100 : 0,
+          multiplier,
+          isBot: false
+        });
+      }
     } else if (event === "1507") {
-      emitFn("game:bet", data);
+      const d = data;
+      for (const play of d.plays ?? []) {
+        emitFn("game:bet", {
+          playerId: String(play.user_id),
+          username: play.username,
+          amount: play.bet,
+          isBot: false
+        });
+      }
     }
   });
   initGameEngine().catch((err) => logger.error({ err }, "Failed to init game engine"));

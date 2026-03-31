@@ -143,6 +143,12 @@ function scheduleBots(): void {
         cashedOut: false,
         hash: crypto.randomBytes(8).toString("hex"),
       });
+      emitFn?.("game:bet", {
+        playerId: botId,
+        username: name,
+        amount,
+        isBot: true,
+      });
     }, delay);
 
     botBetTimers.push(t);
@@ -169,6 +175,13 @@ function scheduleBotCashouts(gameId: number): void {
       bot.cashedOut = true;
       bot.multiplier = Math.round(mult * 100) / 100;
       bot.profit = profit;
+      emitFn?.("game:cashout", {
+        playerId: botId,
+        username: bot.username,
+        amount: bot.amount,
+        multiplier: bot.multiplier,
+        isBot: true,
+      });
     }, cashOutDelay);
 
     botCashoutTimers.push(t);
@@ -231,9 +244,36 @@ export function initEngine(broadcastFn: (event: string, data: unknown) => void):
       emitFn("game:crash", buildCrashedPayload(crashX100));
 
     } else if (event === "1505") {
-      emitFn("game:cashout", data);
+      // Normalize cashout event from DB engine: { '0': { count, amount }, [userId]: { '0': multiplier } }
+      const d = data as Record<string, any>;
+      const activeBets = getActiveBets();
+      for (const [key, val] of Object.entries(d)) {
+        if (key === "0") continue;
+        const userId = parseInt(key, 10);
+        if (isNaN(userId)) continue;
+        const multiplier = typeof val === "object" && "0" in val ? (val["0"] as number) : null;
+        if (multiplier === null) continue;
+        const bet = activeBets.find(b => b.userId === userId);
+        emitFn("game:cashout", {
+          playerId: key,
+          username: bet?.username ?? "Player",
+          amount: bet ? bet.amountCents / 100 : 0,
+          multiplier,
+          isBot: false,
+        });
+      }
+
     } else if (event === "1507") {
-      emitFn("game:bet", data);
+      // Normalize bet event from DB engine: { plays: [{ user_id, username, bet }] }
+      const d = data as { plays: Array<{ user_id: number; username: string; bet: number }> };
+      for (const play of (d.plays ?? [])) {
+        emitFn("game:bet", {
+          playerId: String(play.user_id),
+          username: play.username,
+          amount: play.bet,
+          isBot: false,
+        });
+      }
     }
   });
 
@@ -355,20 +395,6 @@ export async function cashOut(
   const profit = Math.round((payoutCents - amountCents) / 100 * 100) / 100;
 
   return { profit, multiplier, balance: wallet ? wallet.balanceCents / 100 : 0 };
-}
-
-export async function addBot(botId: string, username: string, amount: number): Promise<void> {
-  if (currentEnginePhase !== "waiting" && currentEnginePhase !== "betting") return;
-  if (botPlayers.has(botId)) return;
-  botPlayers.set(botId, {
-    id: botId,
-    username,
-    amount,
-    multiplier: null,
-    profit: null,
-    cashedOut: false,
-    hash: crypto.randomBytes(8).toString("hex"),
-  });
 }
 
 export async function getHistory(limit = 20) {
