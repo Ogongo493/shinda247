@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { formatCurrency, cn } from "@/lib/utils";
-import { useGetGameHistory } from "@workspace/api-client-react";
+import { useGetGameHistory, getGetGameHistoryQueryKey } from "@workspace/api-client-react";
 import { History, MessageSquare, UserPlus } from "lucide-react";
 
 export function HistoryPanel() {
   const [activeTab, setActiveTab] = useState("history");
-  const { data: history } = useGetGameHistory({ limit: 15 }, { query: { refetchInterval: 10000 } });
+  const { data: history } = useGetGameHistory({ limit: 15 }, { query: { queryKey: getGetGameHistoryQueryKey({ limit: 15 }), refetchInterval: 10000 } });
 
   const tabs = [
     { id: "history", label: "History", icon: History },

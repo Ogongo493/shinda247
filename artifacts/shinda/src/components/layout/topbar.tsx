@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Wallet, Plus, Minus, Zap, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, cn } from "@/lib/utils";
-import { useGetGameHistory } from "@workspace/api-client-react";
+import { useGetGameHistory, getGetGameHistoryQueryKey } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
 import { DepositModal, WithdrawModal } from "@/components/wallet/wallet-modals";
@@ -32,7 +32,7 @@ export function Topbar() {
     return () => clearInterval(iv);
   }, [user, token]);
 
-  const { data: history } = useGetGameHistory({ limit: 8 }, { query: { refetchInterval: 5000 } });
+  const { data: history } = useGetGameHistory({ limit: 8 }, { query: { queryKey: getGetGameHistoryQueryKey({ limit: 8 }), refetchInterval: 5000 } });
 
   function handleLogout() {
     logout();

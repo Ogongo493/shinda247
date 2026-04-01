@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { Users, Trophy } from "lucide-react";
 import { formatCurrency, cn } from "@/lib/utils";
-import { useGetLeaderboard } from "@workspace/api-client-react";
+import { useGetLeaderboard, getGetLeaderboardQueryKey } from "@workspace/api-client-react";
 import { useRtdb } from "@/contexts/rtdb-context";
 
 export function RightSidebar() {
   const [tab, setTab] = useState<"live" | "top">("live");
   const { liveBets } = useRtdb();
-  const { data: leaderboard } = useGetLeaderboard({ query: { refetchInterval: 10000 } });
+  const { data: leaderboard } = useGetLeaderboard({ query: { queryKey: getGetLeaderboardQueryKey(), refetchInterval: 10000 } });
 
   const cashedOut = liveBets.filter(b => b.status === "cashed_out");
   const active = liveBets.filter(b => b.status === "active");

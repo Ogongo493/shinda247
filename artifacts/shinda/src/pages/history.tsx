@@ -1,11 +1,11 @@
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
-import { useGetGameHistory } from "@workspace/api-client-react";
+import { useGetGameHistory, getGetGameHistoryQueryKey } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
 import { History as HistoryIcon, TrendingUp, TrendingDown } from "lucide-react";
 
 export default function HistoryPage() {
-  const { data: history, isLoading } = useGetGameHistory({ limit: 100 }, { query: { refetchInterval: 10000 } });
+  const { data: history, isLoading } = useGetGameHistory({ limit: 100 }, { query: { queryKey: getGetGameHistoryQueryKey({ limit: 100 }), refetchInterval: 10000 } });
 
   const totalRounds = history?.length ?? 0;
   const avgCrash = history?.length

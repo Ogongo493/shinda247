@@ -1,6 +1,6 @@
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
-import { useGetGameHistory } from "@workspace/api-client-react";
+import { useGetGameHistory, getGetGameHistoryQueryKey } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/auth-context";
 import { cn } from "@/lib/utils";
 import {
@@ -101,7 +101,7 @@ function TransactionNotifications({ token }: { token: string }) {
 
 export default function NotificationsPage() {
   const { token } = useAuth();
-  const { data: history } = useGetGameHistory({ limit: 20 }, { query: { refetchInterval: 10000 } });
+  const { data: history } = useGetGameHistory({ limit: 20 }, { query: { queryKey: getGetGameHistoryQueryKey({ limit: 20 }), refetchInterval: 10000 } });
 
   const gameNotifications = history?.map((round, i) => {
     const crash = round.crashedAt;

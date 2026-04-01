@@ -11,7 +11,7 @@ import {
   GetWalletResponse,
 } from "@workspace/api-zod";
 import { db } from "@workspace/db";
-import { playersTable, wallets, users, transactions } from "@workspace/db";
+import { wallets, transactions } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import * as engine from "../lib/gameEngine";
 import { verifyJwt, extractToken } from "../lib/jwt";
@@ -134,16 +134,9 @@ router.get("/wallet", async (req: Request, res) => {
     return;
   }
 
-  const playerId = String(req.query.playerId ?? "");
-  if (!playerId) { res.status(400).json({ error: "playerId or auth token required" }); return; }
-
-  let player = await db.query.playersTable.findFirst({ where: eq(playersTable.id, playerId) });
-  if (!player) {
-    const username = "Player" + Math.floor(Math.random() * 9999);
-    [player] = await db.insert(playersTable).values({ id: playerId, username, balance: 0 }).returning();
-  }
-  const data = GetWalletResponse.parse({ balance: player.balance, playerId: player.id });
-  res.json(data);
+  // Unauthenticated wallet lookups are no longer supported.
+  // All wallet operations require a verified JWT (phone-based auth).
+  res.status(401).json({ error: "Authentication required" });
 });
 
 router.get("/notifications", requireAuth, async (req: Request, res) => {

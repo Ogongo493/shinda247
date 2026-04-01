@@ -1,12 +1,12 @@
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
-import { useGetLeaderboard, useGetActivePlayers } from "@workspace/api-client-react";
+import { useGetLeaderboard, useGetActivePlayers, getGetLeaderboardQueryKey, getGetActivePlayersQueryKey } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
 import { Users, Trophy, Medal } from "lucide-react";
 
 export default function PlayersPage() {
-  const { data: leaderboard, isLoading: loadingLeaderboard } = useGetLeaderboard({ query: { refetchInterval: 5000 } });
-  const { data: activePlayers, isLoading: loadingActive } = useGetActivePlayers({ query: { refetchInterval: 2000 } });
+  const { data: leaderboard, isLoading: loadingLeaderboard } = useGetLeaderboard({ query: { queryKey: getGetLeaderboardQueryKey(), refetchInterval: 5000 } });
+  const { data: activePlayers, isLoading: loadingActive } = useGetActivePlayers({ query: { queryKey: getGetActivePlayersQueryKey(), refetchInterval: 2000 } });
 
   const rankColor = (rank: number) => {
     if (rank === 1) return "text-yellow-400";

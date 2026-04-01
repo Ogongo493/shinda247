@@ -12,6 +12,7 @@ import {
   setBroadcast,
   elapsedToMultiplier,
 } from "@workspace/db";
+import { attachBotSimulator, getActiveBotPlayers } from "./botSimulator";
 
 export type GamePhase = "waiting" | "flying" | "crashed";
 
@@ -27,44 +28,27 @@ export interface GameState {
   flyingStartedAt: number | null;
 }
 
-interface BotPlayer {
-  id: string;
-  username: string;
-  amount: number;
-  multiplier: number | null;
-  profit: number | null;
-  cashedOut: boolean;
-  hash: string;
-}
-
-const BOT_NAMES = [
-  "Peterode", "lagatsa", "Brandd", "Serrias", "yegoro",
-  "Johndo", "Ourmae", "Peterdc", "kevinge", "mutuah",
-  "njoro.a", "njugun", "angira", "Wafula", "Kamau",
-  "Muthoni", "Odhiambo", "Chepkemoi", "Githinji", "Wanjiru",
-];
-const BOT_AMOUNTS = [100, 200, 300, 500, 750, 1000, 1500, 2000, 3000];
-
-let botPlayers: Map<string, BotPlayer> = new Map();
-let botCashoutTimers: ReturnType<typeof setTimeout>[] = [];
-let botBetTimers: ReturnType<typeof setTimeout>[] = [];
 let countdownInterval: ReturnType<typeof setInterval> | null = null;
 
-let roundStartTime = Date.now();
-let totalCountdownMs = 7000;
+/**
+ * Total countdown the frontend sees for each new round:
+ *   wait_ms  (reported in 1501, currently 2 000 ms in game.engine.ts)
+ * + BETTING_WINDOW_MS (5 000 ms in game.engine.ts)
+ * Stored so the /game/state REST endpoint can report it accurately.
+ */
+const BETTING_WINDOW_MS = 5000;
+let roundStartTime   = Date.now();
+let totalCountdownMs = BETTING_WINDOW_MS + 2000; // refreshed on every 1501
 let flyingStartedAt: number | null = null;
-let onlineCount = Math.floor(Math.random() * 500) + 800;
-let currentEnginePhase: "waiting" | "betting" | "flying" | "crashed" = "waiting";
+let onlineCount      = Math.floor(Math.random() * 500) + 800;
 
 let emitFn: ((event: string, data: unknown) => void) | null = null;
 
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function randInt(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
+/**
+ * Engine-event fan-out - allows botSimulator (and any future module) to
+ * observe raw DB-engine events without coupling directly to setBroadcast.
+ */
+const engineEventListeners: Array<(event: string, data: unknown) => void> = [];
 
 function buildWaitingPayload(): GameState {
   const elapsed = Date.now() - roundStartTime;
@@ -77,7 +61,7 @@ function buildWaitingPayload(): GameState {
     roundId: game?.id ?? 0,
     countdownMs: remaining,
     onlineCount,
-    playingCount: getActiveBets().length + botPlayers.size,
+    playingCount: getActiveBets().length + getActiveBotPlayers().size,
     startTime: null,
     flyingStartedAt: null,
   };
@@ -93,7 +77,7 @@ function buildFlyingPayload(elapsedMs: number): GameState {
     roundId: game?.id ?? 0,
     countdownMs: null,
     onlineCount,
-    playingCount: getActiveBets().length + botPlayers.size,
+    playingCount: getActiveBets().length + getActiveBotPlayers().size,
     startTime: flyingStartedAt,
     flyingStartedAt,
   };
@@ -115,93 +99,35 @@ function buildCrashedPayload(crashPoint: number): GameState {
   };
 }
 
-function scheduleBots(): void {
-  for (const t of botBetTimers) clearTimeout(t);
-  botBetTimers = [];
-  botPlayers.clear();
-
-  const count = randInt(4, 12);
-  const usedNames = new Set<string>();
-
-  for (let i = 0; i < count; i++) {
-    let name: string;
-    do { name = pick(BOT_NAMES); } while (usedNames.has(name));
-    usedNames.add(name);
-
-    const amount = pick(BOT_AMOUNTS);
-    const delay = randInt(200, totalCountdownMs - 500);
-    const botId = "bot-" + crypto.randomBytes(4).toString("hex");
-
-    const t = setTimeout(() => {
-      if (currentEnginePhase !== "waiting" && currentEnginePhase !== "betting") return;
-      botPlayers.set(botId, {
-        id: botId,
-        username: name,
-        amount,
-        multiplier: null,
-        profit: null,
-        cashedOut: false,
-        hash: crypto.randomBytes(8).toString("hex"),
-      });
-      emitFn?.("game:bet", {
-        playerId: botId,
-        username: name,
-        amount,
-        isBot: true,
-      });
-    }, delay);
-
-    botBetTimers.push(t);
-  }
-}
-
-function scheduleBotCashouts(gameId: number): void {
-  for (const t of botCashoutTimers) clearTimeout(t);
-  botCashoutTimers = [];
-
-  for (const [botId, bot] of botPlayers.entries()) {
-    if (bot.cashedOut) continue;
-    const shouldCashOut = Math.random() < 0.65;
-    if (!shouldCashOut) continue;
-
-    const cashOutDelay = randInt(500, 18000);
-    const t = setTimeout(() => {
-      const g = getCurrentGame();
-      if (!g || g.id !== gameId || g.state !== "flying") return;
-      const elapsed = Date.now() - (flyingStartedAt ?? Date.now());
-      const mult = elapsedToMultiplier(elapsed);
-      if (mult < 1.05) return;
-      const profit = Math.round((bot.amount * mult - bot.amount) * 100) / 100;
-      bot.cashedOut = true;
-      bot.multiplier = Math.round(mult * 100) / 100;
-      bot.profit = profit;
-      emitFn?.("game:cashout", {
-        playerId: botId,
-        username: bot.username,
-        amount: bot.amount,
-        multiplier: bot.multiplier,
-        isBot: true,
-      });
-    }, cashOutDelay);
-
-    botCashoutTimers.push(t);
-  }
-}
-
 export function initEngine(broadcastFn: (event: string, data: unknown) => void): void {
   emitFn = broadcastFn;
 
+  // Wire up bot simulator - it observes the same event stream via the fan-out.
+  attachBotSimulator(broadcastFn, (handler) => {
+    engineEventListeners.push(handler);
+  });
+
   setBroadcast((event, data) => {
+    // emitFn is always set before setBroadcast fires (assigned two lines above),
+    // but the module-level type includes null for pre-init safety. Capture a
+    // local non-null reference so every call site below is type-safe.
+    const emit = emitFn!;
+
+    // Fan out to all secondary listeners (bot simulator, etc.) first.
+    for (const listener of engineEventListeners) {
+      try { listener(event, data); } catch { /* never let a listener kill the game loop */ }
+    }
+
     if (event === "1501") {
+      // New round created. Snapshot timing so the REST /game/state endpoint
+      // can compute the remaining countdown without a live interval.
       const { wait_ms } = data as { id: number; wait_ms: number };
-      roundStartTime = Date.now();
-      totalCountdownMs = wait_ms + 5000;
-      flyingStartedAt = null;
-      currentEnginePhase = "waiting";
-      onlineCount = Math.floor(Math.random() * 500) + 800;
+      roundStartTime   = Date.now();
+      totalCountdownMs = wait_ms + BETTING_WINDOW_MS;
+      flyingStartedAt  = null;
+      onlineCount      = Math.floor(Math.random() * 500) + 800;
 
-      scheduleBots();
-
+      // Poll every 500 ms so the frontend countdown stays current.
       if (countdownInterval) clearInterval(countdownInterval);
       countdownInterval = setInterval(() => {
         const g = getCurrentGame();
@@ -209,69 +135,64 @@ export function initEngine(broadcastFn: (event: string, data: unknown) => void):
           if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
           return;
         }
-        emitFn?.("game:state", buildWaitingPayload());
+        emit("game:state", buildWaitingPayload());
       }, 500);
 
-      emitFn("game:newRound", {
-        roundId: (data as { id: number }).id,
+      emit("game:newRound", {
+        roundId:     (data as { id: number }).id,
         countdownMs: totalCountdownMs,
       });
 
     } else if (event === "betting_open") {
-      currentEnginePhase = "betting";
+      // Phase transition only - no frontend event needed; countdown continues.
 
     } else if (event === "1502") {
       if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
-      currentEnginePhase = "flying";
       flyingStartedAt = Date.now();
-
-      const game = getCurrentGame();
-      if (game) scheduleBotCashouts(game.id);
-
-      emitFn("game:state", buildFlyingPayload(0));
+      emit("game:state", buildFlyingPayload(0));
 
     } else if (event === "1503") {
       const elapsedMs = data as number;
-      emitFn("game:state", buildFlyingPayload(elapsedMs));
+      emit("game:state", buildFlyingPayload(elapsedMs));
 
     } else if (event === "1504") {
-      for (const t of botCashoutTimers) clearTimeout(t);
-      botCashoutTimers = [];
-      currentEnginePhase = "crashed";
-
       const { gameCrash } = data as { gameCrash: number; gameHash: string; elapsed: number; gameId: number };
+      // gameCrash is already crashX100 / 100 (a float, e.g. 2.34).
+      // buildCrashedPayload expects crashX100 (integer), so multiply back.
       const crashX100 = Math.round(gameCrash * 100);
-      emitFn("game:crash", buildCrashedPayload(crashX100));
+      emit("game:crash", buildCrashedPayload(crashX100));
 
     } else if (event === "1505") {
-      // Normalize cashout event from DB engine: { '0': { count, amount }, [userId]: { '0': multiplier } }
-      const d = data as Record<string, any>;
+      // DB engine cashout: { '0': { count, amount }, [userId]: { '0': multiplier } }
+      const d          = data as Record<string, any>;
       const activeBets = getActiveBets();
+
       for (const [key, val] of Object.entries(d)) {
         if (key === "0") continue;
-        const userId = parseInt(key, 10);
+        const userId    = parseInt(key, 10);
         if (isNaN(userId)) continue;
         const multiplier = typeof val === "object" && "0" in val ? (val["0"] as number) : null;
         if (multiplier === null) continue;
+
         const bet = activeBets.find(b => b.userId === userId);
-        emitFn("game:cashout", {
-          playerId: key,
-          username: bet?.username ?? "Player",
-          amount: bet ? bet.amountCents / 100 : 0,
+        emit("game:cashout", {
+          playerId:   key,
+          username:   bet?.username ?? "Player",
+          amount:     bet ? bet.amountCents / 100 : 0,
           multiplier,
-          isBot: false,
+          isBot:      false,
         });
       }
 
     } else if (event === "1507") {
-      // Normalize bet event from DB engine: { plays: [{ user_id, username, bet }] }
+      // DB engine bet placement: { plays: [{ user_id, username, bet, ... }] }
       const d = data as { plays: Array<{ user_id: number; username: string; bet: number }> };
       for (const play of (d.plays ?? [])) {
-        emitFn("game:bet", {
+        emit("game:bet", {
           playerId: String(play.user_id),
           username: play.username,
-          amount: play.bet,
-          isBot: false,
+          amount:   play.bet,
+          isBot:    false,
         });
       }
     }
@@ -302,7 +223,13 @@ export function getState(): GameState {
   }
 
   if (game.state === "flying") {
-    return buildFlyingPayload(game.elapsedMs);
+    // Use wall-clock elapsed from the moment the rocket launched rather than
+    // game.elapsedMs, which is only persisted to the DB on crash. This ensures
+    // a late HTTP poll gets an accurate multiplier even between tick events.
+    const liveElapsedMs = flyingStartedAt !== null
+      ? Date.now() - flyingStartedAt
+      : game.elapsedMs;
+    return buildFlyingPayload(liveElapsedMs);
   }
 
   return buildCrashedPayload(game.crashPoint ?? 100);
@@ -312,17 +239,17 @@ export function getActivePlayers() {
   const engineBets = getActiveBets();
 
   const realPlayers = engineBets.map(bet => {
-    const cashedOut = bet.cashedOutAt !== null;
+    const cashedOut    = bet.cashedOutAt !== null;
     const cashMultX100 = bet.cashedOutAt ?? null;
-    const cashMult = cashMultX100 !== null ? cashMultX100 / 100 : null;
-    const profit = cashedOut && cashMult !== null
+    const cashMult     = cashMultX100 !== null ? cashMultX100 / 100 : null;
+    const profit       = cashedOut && cashMult !== null
       ? Math.round((bet.amountCents * cashMult - bet.amountCents) / 100 * 100) / 100
       : null;
 
     return {
-      id: String(bet.userId),
-      username: bet.username,
-      amount: bet.amountCents / 100,
+      id:         String(bet.userId),
+      username:   bet.username,
+      amount:     bet.amountCents / 100,
       multiplier: cashMult,
       profit,
       cashedOut,
@@ -330,7 +257,16 @@ export function getActivePlayers() {
     };
   });
 
-  const bots = Array.from(botPlayers.values());
+  // Merge in UI-only bots from the bot simulator
+  const bots = Array.from(getActiveBotPlayers().values()).map(bot => ({
+    id:         bot.id,
+    username:   bot.username,
+    amount:     bot.amount,
+    multiplier: null,
+    profit:     null,
+    cashedOut:  bot.cashedOut,
+    hash:       bot.id.slice(-16),
+  }));
 
   return [...realPlayers, ...bots];
 }
@@ -419,26 +355,26 @@ export async function getHistory(limit = 20) {
 
 export async function getLeaderboardFromDB(): Promise<Array<{ username: string; multiplier: number; amount: number }>> {
   try {
-    const topBets = await db
-      .select()
+    const rows = await db
+      .select({
+        username:    users.username,
+        cashedOutAt: bets.cashedOutAt,
+        amountCents: bets.amountCents,
+      })
       .from(bets)
+      .innerJoin(users, eq(bets.userId, users.id))
       .where(eq(bets.state, "cashed_out"))
       .orderBy(desc(bets.cashedOutAt))
       .limit(20);
 
-    const results: Array<{ username: string; multiplier: number; amount: number }> = [];
-    for (const bet of topBets) {
-      if (!bet.cashedOutAt) continue;
-      const [user] = await db
-        .select({ username: users.username })
-        .from(users)
-        .where(eq(users.id, bet.userId));
-      results.push({
-        username: user?.username ?? "Player",
-        multiplier: bet.cashedOutAt / 100,
-        amount: Number(bet.amountCents) / 100,
-      });
-    }
+    const results = rows
+      .filter(r => r.cashedOutAt != null)
+      .map(r => ({
+        username:   r.username,
+        multiplier: r.cashedOutAt! / 100,
+        amount:     Number(r.amountCents) / 100,
+      }));
+
     return results.length > 0 ? results : getFakeLeaderboard();
   } catch {
     return getFakeLeaderboard();

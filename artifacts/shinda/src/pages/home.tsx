@@ -6,7 +6,7 @@ import { GameControls } from "@/components/game/game-controls";
 import { HistoryPanel } from "@/components/game/history-panel";
 import { useAuth } from "@/contexts/auth-context";
 import { useRtdb } from "@/contexts/rtdb-context";
-import { useGetGameState, useGetActivePlayers } from "@workspace/api-client-react";
+import { useGetGameState, useGetActivePlayers, getGetGameStateQueryKey, getGetActivePlayersQueryKey } from "@workspace/api-client-react";
 
 export default function Home() {
   const { user } = useAuth();
@@ -15,6 +15,7 @@ export default function Home() {
   // Fall back to polling if RTDB not connected yet
   const { data: polledGameState } = useGetGameState({
     query: {
+      queryKey: getGetGameStateQueryKey(),
       refetchInterval: connected ? false : 500,
       enabled: !connected,
     },
@@ -22,7 +23,7 @@ export default function Home() {
 
   const gameState = rtdbGameState ?? polledGameState;
 
-  const { data: activePlayers } = useGetActivePlayers({ query: { refetchInterval: 2000 } });
+  const { data: activePlayers } = useGetActivePlayers({ query: { queryKey: getGetActivePlayersQueryKey(), refetchInterval: 2000 } });
 
   if (!user) return null;
 

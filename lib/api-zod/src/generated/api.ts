@@ -50,7 +50,7 @@ export const GetGameHistoryResponse = zod.array(GetGameHistoryResponseItem);
 export const PlaceBetBody = zod.object({
   amount: zod.number(),
   autoCashOut: zod.number().nullish(),
-  playerId: zod.string(),
+  playerId: zod.string().optional(), // server ignores this; identity comes from JWT
 });
 
 export const PlaceBetResponse = zod.object({
@@ -64,7 +64,7 @@ export const PlaceBetResponse = zod.object({
  */
 export const CashOutBody = zod.object({
   betId: zod.number(),
-  playerId: zod.string(),
+  playerId: zod.string().optional(), // server ignores this; identity comes from JWT
 });
 
 export const CashOutResponse = zod.object({
