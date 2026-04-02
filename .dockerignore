@@ -1,9 +1,24 @@
-node_modules
+# Dependencies — never send these to Docker
 **/node_modules
+
+# Build outputs — rebuilt inside Docker, don't send from host
 **/dist
+**/.tsbuildinfo
+
+# Secrets
 **/.env
+**/.env.*
+
+# Git internals
 .git
-.gitignore
-artifacts/shinda
-.local
+
+# Editor / OS noise
+.DS_Store
+.vscode/
 *.log
+*.swp
+
+# Replit-specific
+.local
+.replit.nix
+replit_zip_error_log.txt
