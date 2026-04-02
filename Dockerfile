@@ -1,24 +1,12 @@
 # ── Stage 1: install dependencies ────────────────────────────────────────────
 FROM node:24-slim AS deps
 
-# corepack is built into Node 24 — zero memory overhead vs npm install -g
 RUN corepack enable && corepack prepare pnpm@10 --activate
 
 WORKDIR /app
 
-# Root workspace manifests
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-
-# lib packages
-COPY lib/db/package.json                   ./lib/db/
-COPY lib/api-zod/package.json              ./lib/api-zod/
-COPY lib/api-client-react/package.json     ./lib/api-client-react/
-COPY lib/api-spec/package.json             ./lib/api-spec/
-
-# artifacts
-COPY artifacts/api-server/package.json     ./artifacts/api-server/
-COPY artifacts/shinda/package.json         ./artifacts/shinda/
-COPY scripts/package.json                  ./scripts/
+# Copy the entire workspace (node_modules and dist excluded via .dockerignore)
+COPY . .
 
 RUN pnpm install --frozen-lockfile
 
@@ -26,13 +14,7 @@ RUN pnpm install --frozen-lockfile
 # ── Stage 2: build ────────────────────────────────────────────────────────────
 FROM deps AS builder
 
-# Cache-bust arg — increment if Railway serves a stale cached layer
-ARG CACHE_BUST=2
-
-COPY tsconfig.base.json tsconfig.json ./
-COPY lib       ./lib
-COPY artifacts ./artifacts
-COPY scripts   ./scripts
+ARG CACHE_BUST=3
 
 # Build shared libs
 RUN pnpm run typecheck:libs
@@ -53,6 +35,7 @@ RUN corepack enable && corepack prepare pnpm@10 --activate
 
 WORKDIR /app
 
+# Copy workspace manifests and install production deps only
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY lib/db/package.json                   ./lib/db/
 COPY lib/api-zod/package.json              ./lib/api-zod/
@@ -64,13 +47,9 @@ COPY scripts/package.json                  ./scripts/
 
 RUN pnpm install --frozen-lockfile --prod
 
-# Compiled API server bundle
-COPY --from=builder /app/artifacts/api-server/dist \
-                    ./artifacts/api-server/dist
-
-# Compiled frontend static files
-COPY --from=builder /app/artifacts/shinda/dist/public \
-                    ./public
+# Compiled outputs from builder
+COPY --from=builder /app/artifacts/api-server/dist ./artifacts/api-server/dist
+COPY --from=builder /app/artifacts/shinda/dist/public ./public
 
 ENV NODE_ENV=production
 ENV PORT=8080
