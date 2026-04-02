@@ -1,23 +1,22 @@
 # ── Stage 1: install dependencies ────────────────────────────────────────────
 FROM node:24-slim AS deps
 
-# Install pnpm via corepack (built into Node — no npm install needed, no OOM)
+# corepack is built into Node 24 — zero memory overhead vs npm install -g
 RUN corepack enable && corepack prepare pnpm@10 --activate
 
 WORKDIR /app
 
-# Copy manifests first — Docker cache is reused on code-only changes
+# Root workspace manifests
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 
-# lib packages
+# All workspace package manifests (must match pnpm-workspace.yaml globs exactly)
 COPY lib/db/package.json                   ./lib/db/
 COPY lib/api-zod/package.json              ./lib/api-zod/
 COPY lib/api-client-react/package.json     ./lib/api-client-react/
 COPY lib/api-spec/package.json             ./lib/api-spec/
-
-# artifacts
 COPY artifacts/api-server/package.json     ./artifacts/api-server/
 COPY artifacts/shinda/package.json         ./artifacts/shinda/
+COPY scripts/package.json                  ./scripts/
 
 RUN pnpm install --frozen-lockfile
 
@@ -30,13 +29,13 @@ COPY lib       ./lib
 COPY artifacts ./artifacts
 COPY scripts   ./scripts
 
-# Type-check and build all shared libs (drizzle, api-zod, api-client-react)
+# Build shared libs (generates type declarations used by api-server)
 RUN pnpm run typecheck:libs
 
-# API server — esbuild bundles src/ → artifacts/api-server/dist/index.mjs
+# API server — esbuild → artifacts/api-server/dist/index.mjs
 RUN pnpm --filter @workspace/api-server run build
 
-# Frontend — vite bundles to artifacts/shinda/dist/public
+# Frontend — vite → artifacts/shinda/dist/public
 ENV BASE_PATH=/
 ENV PORT=5000
 RUN pnpm --filter @workspace/shinda run build
@@ -49,7 +48,6 @@ RUN corepack enable && corepack prepare pnpm@10 --activate
 
 WORKDIR /app
 
-# Manifests for production dep install (no devDeps)
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY lib/db/package.json                   ./lib/db/
 COPY lib/api-zod/package.json              ./lib/api-zod/
@@ -57,14 +55,15 @@ COPY lib/api-client-react/package.json     ./lib/api-client-react/
 COPY lib/api-spec/package.json             ./lib/api-spec/
 COPY artifacts/api-server/package.json     ./artifacts/api-server/
 COPY artifacts/shinda/package.json         ./artifacts/shinda/
+COPY scripts/package.json                  ./scripts/
 
 RUN pnpm install --frozen-lockfile --prod
 
-# API server bundle
+# Compiled API server bundle
 COPY --from=builder /app/artifacts/api-server/dist \
                     ./artifacts/api-server/dist
 
-# Frontend static assets
+# Compiled frontend static files
 COPY --from=builder /app/artifacts/shinda/dist/public \
                     ./public
 
