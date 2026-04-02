@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+*.tsbuildinfo
+
+# Environment — never commit real secrets
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+pino-*
+
+# Editor / OS
+.DS_Store
+.vscode/
+*.swp
+*.swo
+
+# Replit
+.replit.nix
+replit_zip_error_log.txt
