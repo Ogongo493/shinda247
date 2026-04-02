@@ -9,11 +9,13 @@ WORKDIR /app
 # Root workspace manifests
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 
-# All workspace package manifests (must match pnpm-workspace.yaml globs exactly)
+# lib packages
 COPY lib/db/package.json                   ./lib/db/
 COPY lib/api-zod/package.json              ./lib/api-zod/
 COPY lib/api-client-react/package.json     ./lib/api-client-react/
 COPY lib/api-spec/package.json             ./lib/api-spec/
+
+# artifacts
 COPY artifacts/api-server/package.json     ./artifacts/api-server/
 COPY artifacts/shinda/package.json         ./artifacts/shinda/
 COPY scripts/package.json                  ./scripts/
@@ -24,12 +26,15 @@ RUN pnpm install --frozen-lockfile
 # ── Stage 2: build ────────────────────────────────────────────────────────────
 FROM deps AS builder
 
+# Cache-bust arg — increment if Railway serves a stale cached layer
+ARG CACHE_BUST=2
+
 COPY tsconfig.base.json tsconfig.json ./
 COPY lib       ./lib
 COPY artifacts ./artifacts
 COPY scripts   ./scripts
 
-# Build shared libs (generates type declarations used by api-server)
+# Build shared libs
 RUN pnpm run typecheck:libs
 
 # API server — esbuild → artifacts/api-server/dist/index.mjs
