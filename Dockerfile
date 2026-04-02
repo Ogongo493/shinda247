@@ -1,7 +1,8 @@
 # ── Stage 1: install dependencies ────────────────────────────────────────────
 FROM node:24-slim AS deps
 
-RUN npm install -g pnpm@10
+# Install pnpm via corepack (built into Node — no npm install needed, no OOM)
+RUN corepack enable && corepack prepare pnpm@10 --activate
 
 WORKDIR /app
 
@@ -44,7 +45,7 @@ RUN pnpm --filter @workspace/shinda run build
 # ── Stage 3: lean production image ───────────────────────────────────────────
 FROM node:24-slim AS runner
 
-RUN npm install -g pnpm@10
+RUN corepack enable && corepack prepare pnpm@10 --activate
 
 WORKDIR /app
 
@@ -63,7 +64,7 @@ RUN pnpm install --frozen-lockfile --prod
 COPY --from=builder /app/artifacts/api-server/dist \
                     ./artifacts/api-server/dist
 
-# Frontend static assets (serve via nginx, CDN, or Express static middleware)
+# Frontend static assets
 COPY --from=builder /app/artifacts/shinda/dist/public \
                     ./public
 
