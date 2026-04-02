@@ -47,7 +47,7 @@ app.use("/api", router);
 if (STATIC_DIR) {
   app.use(express.static(STATIC_DIR));
   // SPA fallback — any non-API path returns index.html
-  app.get("/*", (_req, res) => {
+  app.get("*", (_req, res) => {
     res.sendFile(path.join(STATIC_DIR, "index.html"));
   });
 }
