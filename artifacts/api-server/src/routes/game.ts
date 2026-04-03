@@ -16,11 +16,24 @@ import { eq, desc } from "drizzle-orm";
 import * as engine from "../lib/gameEngine";
 import { verifyJwt, extractToken } from "../lib/jwt";
 import { requireAuth } from "./auth";
+import rateLimit from "express-rate-limit";
 
 const router: IRouter = Router();
 
 const MIN_BET_KES = 50;
 const MAX_BET_KES = 50_000;
+
+/** 1 bet per second per user — blocks bet-spamming bots */
+const betLimiter = rateLimit({
+  windowMs: 1000,
+  max: 1,
+  keyGenerator: (req) => (req as any).user?.sub ?? req.ip ?? "unknown",
+  handler: (_req, res) => {
+    res.status(429).json({ error: "You are betting too fast. Wait for the next round." });
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 router.get("/game/state", (_req, res) => {
   const state = engine.getState();
@@ -50,7 +63,7 @@ router.get("/game/history", async (_req, res) => {
   res.json(data);
 });
 
-router.post("/game/bet", requireAuth, async (req: Request, res) => {
+router.post("/game/bet", requireAuth, betLimiter, async (req: Request, res) => {
   const user = (req as any).user as { sub: number; username: string };
 
   const body = PlaceBetBody.safeParse(req.body);

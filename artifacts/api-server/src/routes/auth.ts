@@ -7,8 +7,44 @@ import { z } from "zod";
 import { signJwt, verifyJwt, extractToken, type JwtPayload } from "../lib/jwt";
 import { logger } from "../lib/logger";
 import { sendOtp } from "../lib/sms";
+import rateLimit from "express-rate-limit";
 
 const router: IRouter = Router();
+
+// ── Rate limiters ────────────────────────────────────────────────────────────
+
+/**
+ * OTP request limiter — 5 requests per phone per 10 minutes.
+ * Protects Africa's Talking SMS bill from abuse.
+ */
+const otpLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 5,
+  keyGenerator: (req) => {
+    // Key by phone number so limits are per-user, not per-IP
+    const phone = req.body?.phone ?? req.ip ?? "unknown";
+    return String(phone).replace(/\D/g, "").slice(-9); // last 9 digits
+  },
+  handler: (_req, res) => {
+    res.status(429).json({ error: "Too many OTP requests. Please wait 10 minutes before trying again." });
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/**
+ * General auth limiter — 20 requests per IP per 15 minutes.
+ * Covers verify-otp brute force attempts.
+ */
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  handler: (_req, res) => {
+    res.status(429).json({ error: "Too many requests. Please slow down." });
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 const PhoneSchema = z.string().regex(/^(07|01|2547|2541)\d{8}$/, "Invalid Kenyan phone number");
 const OtpSchema   = z.string().length(6).regex(/^\d+$/, "OTP must be 6 digits");
@@ -36,7 +72,7 @@ const RegisterSchema = z.object({
   username: z.string().min(3).max(32).regex(/^[a-zA-Z0-9_]+$/, "Username: letters, digits, underscores only"),
 });
 
-router.post("/register", async (req: Request, res: Response) => {
+router.post("/register", otpLimiter, async (req: Request, res: Response) => {
   const body = RegisterSchema.safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: body.error.issues[0]?.message ?? "Invalid request" });
@@ -83,7 +119,7 @@ const VerifyOtpSchema = z.object({
   username: z.string().min(3).max(32).optional(),
 });
 
-router.post("/verify-otp", async (req: Request, res: Response) => {
+router.post("/verify-otp", authLimiter, async (req: Request, res: Response) => {
   const body = VerifyOtpSchema.safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: body.error.issues[0]?.message ?? "Invalid request" });
@@ -146,7 +182,7 @@ const LoginSchema = z.object({
   phone: PhoneSchema,
 });
 
-router.post("/login", async (req: Request, res: Response) => {
+router.post("/login", otpLimiter, async (req: Request, res: Response) => {
   const body = LoginSchema.safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: body.error.issues[0]?.message ?? "Invalid request" });
