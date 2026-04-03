@@ -102,9 +102,9 @@ export function GameControls({ userId, gameState, activePlayers }: GameControlsP
   const liveWin = (smoothMultiplier * betAmt).toFixed(2);
 
   return (
-    <div className="w-full bg-card rounded-2xl border border-border/50 p-4 md:p-6 shadow-xl flex flex-col md:flex-row gap-4 lg:gap-8 shrink-0">
+    <div className="w-full bg-card rounded-2xl border border-border/50 p-3 md:p-6 shadow-xl flex flex-col gap-3 md:gap-6 shrink-0">
 
-      <div className="flex-1 flex gap-4">
+      <div className="flex gap-3 md:gap-4">
         <div className="flex-1 space-y-2">
           <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider ml-1 flex items-center gap-1">
             <Hash className="w-3 h-3" /> Bet Amount (KES)
@@ -124,7 +124,7 @@ export function GameControls({ userId, gameState, activePlayers }: GameControlsP
                 key={val}
                 onClick={() => setAmount(val.toString())}
                 disabled={hasBet || phase !== "waiting"}
-                className="flex-1 py-1.5 bg-secondary hover:bg-secondary/80 rounded-md text-xs font-mono font-bold text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                className="flex-1 py-1 md:py-1.5 bg-secondary hover:bg-secondary/80 rounded-md text-xs font-mono font-bold text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
               >
                 {val >= 1000 ? `${val / 1000}k` : val}
               </button>
@@ -151,7 +151,7 @@ export function GameControls({ userId, gameState, activePlayers }: GameControlsP
                 key={val}
                 onClick={() => setAutoCash(val.toFixed(2))}
                 disabled={hasBet || phase !== "waiting"}
-                className="flex-1 py-1.5 bg-secondary hover:bg-secondary/80 rounded-md text-xs font-mono font-bold text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                className="flex-1 py-1 md:py-1.5 bg-secondary hover:bg-secondary/80 rounded-md text-xs font-mono font-bold text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
               >
                 {val}×
               </button>
@@ -160,7 +160,7 @@ export function GameControls({ userId, gameState, activePlayers }: GameControlsP
         </div>
       </div>
 
-      <div className="w-full md:w-[300px] flex items-end">
+      <div className="w-full flex items-end">
         {canCashOut ? (
           <Button
             size="xl"
