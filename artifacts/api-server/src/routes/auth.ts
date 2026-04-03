@@ -188,6 +188,38 @@ router.get("/me", requireAuth, async (req: Request, res: Response) => {
   res.json({ id: dbUser.id, phone: dbUser.phone, username: dbUser.username, isAdmin: dbUser.isAdmin });
 });
 
+
+router.post("/change-password", requireAuth, async (req: Request, res: Response) => {
+  const user = (req as any).user as JwtPayload;
+
+  const body = z.object({
+    currentPassword: z.string().min(1),
+    newPassword:     z.string().min(6, "New password must be at least 6 characters").max(72),
+  }).safeParse(req.body);
+
+  if (!body.success) {
+    res.status(400).json({ error: body.error.issues[0]?.message ?? "Invalid request" });
+    return;
+  }
+
+  const [dbUser] = await db.select().from(users).where(eq(users.id, user.sub));
+  if (!dbUser || !dbUser.passwordHash) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const valid = await verifyPassword(body.data.currentPassword, dbUser.passwordHash);
+  if (!valid) {
+    res.status(401).json({ error: "Current password is incorrect" });
+    return;
+  }
+
+  const newHash = await hashPassword(body.data.newPassword);
+  await db.update(users).set({ passwordHash: newHash, updatedAt: new Date() }).where(eq(users.id, user.sub));
+
+  res.json({ success: true, message: "Password updated successfully" });
+});
+
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const token = extractToken(req.headers.authorization);
   if (!token) {

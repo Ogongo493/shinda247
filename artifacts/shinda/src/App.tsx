@@ -12,6 +12,7 @@ import AdminPage from "@/pages/admin";
 import HistoryPage from "@/pages/history";
 import PlayersPage from "@/pages/players";
 import NotificationsPage from "@/pages/notifications";
+import FAQPage from "@/pages/faq";
 import NotFound from "@/pages/not-found";
 import { useEffect } from "react";
 
@@ -56,6 +57,7 @@ function Router() {
       <Route path="/history" component={() => <ProtectedRoute component={HistoryPage} />} />
       <Route path="/players" component={() => <ProtectedRoute component={PlayersPage} />} />
       <Route path="/notifications" component={() => <ProtectedRoute component={NotificationsPage} />} />
+      <Route path="/faq" component={() => <ProtectedRoute component={FAQPage} />} />
       <Route component={NotFound} />
     </Switch>
   );
