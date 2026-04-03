@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 function normalizePhone(phone: string): string {
   const digits = phone.replace(/\D/g, "");
   if (digits.startsWith("254")) return digits;
-  if (digits.startsWith("0")) return "254" + digits.slice(1);
+  if (digits.startsWith("0"))   return "254" + digits.slice(1);
   return digits;
 }
 
@@ -18,46 +18,22 @@ export default function LoginPage() {
   const { login } = useAuth();
   const { toast } = useToast();
 
-  const [step, setStep] = useState<"phone" | "otp">("phone");
-  const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [phone,    setPhone]    = useState("");
+  const [password, setPassword] = useState("");
+  const [loading,  setLoading]  = useState(false);
 
-  async function handleSendOtp(e: React.FormEvent) {
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     try {
       const res = await fetch("/api/auth/login", {
-        method: "POST",
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: normalizePhone(phone) }),
+        body:    JSON.stringify({ phone: normalizePhone(phone), password }),
       });
       const data = await res.json();
       if (!res.ok) {
-        toast({ title: "Error", description: data.error ?? "Failed to send OTP", variant: "destructive" });
-        return;
-      }
-      setStep("otp");
-      toast({ title: "OTP Sent", description: "Check your phone or server logs for the code." });
-    } catch {
-      toast({ title: "Error", description: "Network error. Please try again.", variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleVerifyOtp(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const res = await fetch("/api/auth/verify-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: normalizePhone(phone), otp }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast({ title: "Error", description: data.error ?? "Invalid OTP", variant: "destructive" });
+        toast({ title: "Error", description: data.error ?? "Login failed", variant: "destructive" });
         return;
       }
       login(data.token, data.user);
@@ -81,54 +57,33 @@ export default function LoginPage() {
         </div>
 
         <div className="bg-card border border-border/50 rounded-2xl p-6 space-y-6 shadow-xl">
-          {step === "phone" ? (
-            <form onSubmit={handleSendOtp} className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Phone Number</label>
-                <Input
-                  type="tel"
-                  placeholder="0712345678"
-                  value={phone}
-                  onChange={e => setPhone(e.target.value)}
-                  className="h-12 text-base"
-                  required
-                />
-                <p className="text-xs text-muted-foreground">Enter your Kenyan phone number (07xx or 01xx)</p>
-              </div>
-              <Button type="submit" className="w-full h-12 text-base" disabled={loading}>
-                {loading ? "Sending..." : "Send OTP"}
-              </Button>
-            </form>
-          ) : (
-            <form onSubmit={handleVerifyOtp} className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  Enter OTP sent to {phone}
-                </label>
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="123456"
-                  maxLength={6}
-                  value={otp}
-                  onChange={e => setOtp(e.target.value)}
-                  className="h-12 text-base text-center tracking-widest text-xl font-mono"
-                  autoFocus
-                  required
-                />
-              </div>
-              <Button type="submit" className="w-full h-12 text-base" disabled={loading}>
-                {loading ? "Verifying..." : "Verify & Login"}
-              </Button>
-              <button
-                type="button"
-                onClick={() => { setStep("phone"); setOtp(""); }}
-                className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                ← Change phone number
-              </button>
-            </form>
-          )}
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Phone Number</label>
+              <Input
+                type="tel"
+                placeholder="0712345678"
+                value={phone}
+                onChange={e => setPhone(e.target.value)}
+                className="h-12 text-base"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Password</label>
+              <Input
+                type="password"
+                placeholder="Enter your password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                className="h-12 text-base"
+                required
+              />
+            </div>
+            <Button type="submit" className="w-full h-12 text-base" disabled={loading}>
+              {loading ? "Signing in..." : "Sign In"}
+            </Button>
+          </form>
 
           <div className="border-t border-border/50 pt-4 text-center">
             <p className="text-sm text-muted-foreground">
