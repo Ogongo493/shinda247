@@ -7,8 +7,8 @@ import { usePlaceBet, useCashOut } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRtdb } from "@/contexts/rtdb-context";
 
-const MIN_BET = 50;
-const MAX_BET = 50_000;
+const MIN_BET = 10;
+const MAX_BET = 3_000;
 
 interface GameControlsProps {
   userId: number;
@@ -106,8 +106,9 @@ export function GameControls({ userId, gameState, activePlayers }: GameControlsP
 
       <div className="flex gap-3 md:gap-4">
         <div className="flex-1 space-y-2">
-          <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider ml-1 flex items-center gap-1">
-            <Hash className="w-3 h-3" /> Bet Amount (KES)
+          <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider ml-1 flex items-center justify-between gap-1">
+            <span className="flex items-center gap-1"><Hash className="w-3 h-3" /> Bet (KES)</span>
+            <span className="text-[10px] font-normal normal-case text-muted-foreground/60">Min {MIN_BET} · Max {MAX_BET.toLocaleString()}</span>
           </label>
           <Input
             type="number"
@@ -119,7 +120,7 @@ export function GameControls({ userId, gameState, activePlayers }: GameControlsP
             className="text-lg h-14 bg-background"
           />
           <div className="flex gap-2">
-            {[50, 100, 500, 1000].map(val => (
+            {[10, 50, 100, 500, 1000, 3000].map(val => (
               <button
                 key={val}
                 onClick={() => setAmount(val.toString())}

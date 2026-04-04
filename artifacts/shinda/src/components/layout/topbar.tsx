@@ -139,10 +139,10 @@ function ProfileDrawer({ open, onClose, user, balance, token, onLogout, onDeposi
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/60 z-40" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/60 z-[90]" onClick={onClose} />
 
       {/* Drawer */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-sm bg-card border-l border-border/50 z-50 flex flex-col shadow-2xl">
+      <div className="fixed inset-y-0 right-0 w-full max-w-sm bg-card border-l border-border/50 z-[100] flex flex-col shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
           <h2 className="font-display font-bold text-lg">My Account</h2>

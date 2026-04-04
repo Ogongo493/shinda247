@@ -20,8 +20,8 @@ import rateLimit from "express-rate-limit";
 
 const router: IRouter = Router();
 
-const MIN_BET_KES = 50;
-const MAX_BET_KES = 50_000;
+const MIN_BET_KES = 10;
+const MAX_BET_KES = 3_000; // matches Pakakumi — protects house liquidity
 
 /** 1 bet per second per user — blocks bet-spamming bots */
 const betLimiter = rateLimit({

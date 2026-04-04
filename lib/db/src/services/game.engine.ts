@@ -168,8 +168,8 @@ export async function placeBet(
   if (activeBets.has(userId)) {
     return { success: false, error: 'You already have an active bet' };
   }
-  if (amountCents < 100) {
-    return { success: false, error: 'Minimum bet is KES 1' };
+  if (amountCents < 1000) {
+    return { success: false, error: 'Minimum bet is KES 10' };
   }
   if (amountCents > 300000) {
     return { success: false, error: 'Maximum bet is KES 3,000' };
