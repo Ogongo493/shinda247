@@ -34,8 +34,8 @@ export default function Home() {
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative z-10">
         <Topbar />
 
-        <main className="flex-1 overflow-y-auto p-3 md:p-6 space-y-4 pb-24 md:pb-6">
-          <div className="flex flex-col gap-6 max-w-5xl mx-auto w-full">
+        <main className="flex-1 overflow-y-auto p-2 sm:p-3 md:p-5 pb-24 md:pb-6">
+          <div className="flex flex-col gap-2 sm:gap-3 md:gap-5 max-w-5xl mx-auto w-full">
             <GameCanvas gameState={gameState} />
 
             <GameControls

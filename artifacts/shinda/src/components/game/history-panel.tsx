@@ -9,12 +9,12 @@ export function HistoryPanel() {
 
   const tabs = [
     { id: "history", label: "History", icon: History },
-    { id: "support", label: "Customer Care", icon: MessageSquare },
-    { id: "refer", label: "Refer & Earn", icon: UserPlus },
+    { id: "support", label: "Support", icon: MessageSquare },
+    { id: "refer", label: "Refer", icon: UserPlus },
   ];
 
   return (
-    <div className="w-full bg-card rounded-2xl border border-border/50 shadow-xl overflow-hidden flex flex-col h-[400px]">
+    <div className="w-full bg-card rounded-2xl border border-border/50 shadow-xl overflow-hidden flex flex-col">
       
       {/* Tabs Header */}
       <div className="flex border-b border-border/50 bg-secondary/30">
@@ -37,22 +37,22 @@ export function HistoryPanel() {
       </div>
 
       {/* Tab Content */}
-      <div className="flex-1 overflow-auto bg-background p-0">
+      <div className="overflow-auto bg-background p-0 max-h-[320px] md:max-h-[400px]">
         {activeTab === "history" && (
           <table className="w-full text-sm text-left whitespace-nowrap">
             <thead className="text-xs text-muted-foreground uppercase bg-secondary/50 sticky top-0 font-bold tracking-wider">
               <tr>
-                <th className="px-6 py-4">Round ID</th>
-                <th className="px-6 py-4">Crash Point</th>
-                <th className="px-6 py-4">Hash</th>
-                <th className="px-6 py-4 text-right">Time</th>
+                <th className="px-3 py-3 md:px-6 md:py-4">Round</th>
+                <th className="px-3 py-3 md:px-6 md:py-4">Crash</th>
+                <th className="px-3 py-3 md:px-6 md:py-4 hidden sm:table-cell">Hash</th>
+                <th className="px-3 py-3 md:px-6 md:py-4 text-right">Time</th>
               </tr>
             </thead>
             <tbody>
               {history?.map((round) => (
                 <tr key={round.id} className="border-b border-border/50 hover:bg-secondary/20 transition-colors">
-                  <td className="px-6 py-3 font-mono">#{round.id}</td>
-                  <td className="px-6 py-3 font-mono font-bold">
+                  <td className="px-3 py-2 md:px-6 md:py-3 font-mono text-sm">#{round.id}</td>
+                  <td className="px-3 py-2 md:px-6 md:py-3 font-mono font-bold">
                     <span className={cn(
                       round.crashedAt >= 5 ? "text-success" : 
                       round.crashedAt >= 2 ? "text-warning" : "text-destructive"
@@ -60,8 +60,8 @@ export function HistoryPanel() {
                       {round.crashedAt.toFixed(2)}x
                     </span>
                   </td>
-                  <td className="px-6 py-3 font-mono text-muted-foreground text-xs">{round.hash.substring(0, 16)}...</td>
-                  <td className="px-6 py-3 text-right text-muted-foreground">
+                  <td className="px-3 py-2 md:px-6 md:py-3 font-mono text-muted-foreground text-xs hidden sm:table-cell">{round.hash.substring(0, 12)}...</td>
+                  <td className="px-3 py-2 md:px-6 md:py-3 text-right text-muted-foreground text-xs">
                     {new Date(round.createdAt).toLocaleTimeString()}
                   </td>
                 </tr>

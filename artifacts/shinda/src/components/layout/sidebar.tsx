@@ -115,7 +115,7 @@ export function Sidebar() {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex-1 flex flex-col items-center justify-center gap-1 py-3 transition-colors",
+                "flex-1 flex flex-col items-center justify-center gap-1 py-3 transition-colors relative",
                 isActive ? "text-primary" : "text-muted-foreground"
               )}
             >

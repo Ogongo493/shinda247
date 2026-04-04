@@ -15,7 +15,7 @@ export function RightSidebar() {
   const sorted = [...cashedOut, ...active, ...lost];
 
   return (
-    <aside className="w-72 h-full hidden xl:flex flex-col bg-card border-l border-border/50 z-20">
+    <aside className="w-64 h-full hidden lg:flex flex-col bg-card border-l border-border/50 z-20">
 
       {/* Tab headers */}
       <div className="flex border-b border-border/50 shrink-0">
@@ -60,7 +60,7 @@ export function RightSidebar() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto min-h-0">
         {tab === "live" ? (
           sorted.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">

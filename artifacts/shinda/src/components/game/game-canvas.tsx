@@ -31,7 +31,7 @@ export function GameCanvas({ gameState }: GameCanvasProps) {
   []);
 
   return (
-    <div className="relative w-full h-full min-h-[350px] md:min-h-[450px] bg-background rounded-2xl border border-border/50 shadow-2xl overflow-hidden flex flex-col">
+    <div className="relative w-full min-h-[240px] sm:min-h-[300px] md:min-h-[380px] bg-background rounded-2xl border border-border/50 shadow-2xl overflow-hidden flex flex-col">
 
       {/* Starfield */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -52,8 +52,8 @@ export function GameCanvas({ gameState }: GameCanvasProps) {
       </div>
 
       {/* Moving Mountains */}
-      <div className={cn("absolute bottom-0 left-0 right-0 h-[150px] mountain-bg opacity-40", isFlying && "moving")} />
-      <div className={cn("absolute bottom-0 left-0 right-0 h-[100px] mountain-bg opacity-70", isFlying && "moving")} style={{ animationDuration: "10s" }} />
+      <div className={cn("absolute bottom-0 left-0 right-0 h-[80px] sm:h-[120px] md:h-[150px] mountain-bg opacity-40", isFlying && "moving")} />
+      <div className={cn("absolute bottom-0 left-0 right-0 h-[60px] sm:h-[80px] md:h-[100px] mountain-bg opacity-70", isFlying && "moving")} style={{ animationDuration: "10s" }} />
 
       {/* Top Stats Bar */}
       <div className="absolute top-4 left-4 right-4 flex justify-between items-start z-10">
@@ -79,7 +79,7 @@ export function GameCanvas({ gameState }: GameCanvasProps) {
         {/* Multiplier number */}
         <motion.h1
           className={cn(
-            "font-mono text-7xl md:text-9xl font-black tracking-tighter drop-shadow-2xl transition-colors duration-300",
+            "font-mono text-5xl sm:text-6xl md:text-8xl lg:text-9xl font-black tracking-tighter drop-shadow-2xl transition-colors duration-300",
             isCrashed ? "text-destructive" : isFlying ? "text-white" : "text-white/50"
           )}
           animate={isFlying ? { scale: [1, 1.02, 1] } : { scale: 1 }}
@@ -112,7 +112,7 @@ export function GameCanvas({ gameState }: GameCanvasProps) {
             </div>
             {countdownSec > 0 && (
               <div className="flex items-center gap-1">
-                <span className="font-mono text-4xl font-black text-white/80 tabular-nums">
+                <span className="font-mono text-3xl sm:text-4xl font-black text-white/80 tabular-nums">
                   {countdownSec}
                 </span>
                 <span className="font-mono text-lg text-muted-foreground">s</span>
@@ -141,7 +141,7 @@ export function GameCanvas({ gameState }: GameCanvasProps) {
         >
           <div className="relative">
             <Rocket
-              className={cn("w-20 h-20 md:w-24 md:h-24", isCrashed ? "text-destructive" : "text-white")}
+              className={cn("w-14 h-14 sm:w-16 sm:h-16 md:w-24 md:h-24", isCrashed ? "text-destructive" : "text-white")}
               fill="currentColor"
               strokeWidth={1}
             />
