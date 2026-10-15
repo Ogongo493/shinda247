@@ -1,6 +1,6 @@
 import { db } from '../index';
 import { games, bets, wallets, transactions } from '../schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, inArray } from 'drizzle-orm';
 import { computeCrashPoint, deriveNextHash, crashPointToElapsed, generateHashChain } from './rng.service';
 import { creditWallet, debitWallet } from './wallet.service';
 
@@ -51,15 +51,16 @@ export async function initGameEngine(chain?: string[]): Promise<void> {
   hashChain = chain ?? generateHashChain(1000);
   chainIndex = 0;
 
-  const [lastGame] = await db
-    .select()
+  // A restart can interrupt any non-terminal phase, not just flight.
+  // Recover every unfinished round before creating a new one.
+  const unfinishedGames = await db
+    .select({ id: games.id })
     .from(games)
-    .where(eq(games.state, 'flying'))
-    .orderBy(desc(games.id))
-    .limit(1);
+    .where(inArray(games.state, ['waiting', 'betting', 'flying']))
+    .orderBy(desc(games.id));
 
-  if (lastGame) {
-    await recoverInterruptedGame(lastGame.id);
+  for (const game of unfinishedGames) {
+    await recoverInterruptedGame(game.id);
   }
 
   startNewRound();
@@ -333,7 +334,7 @@ async function recoverInterruptedGame(gameId: number): Promise<void> {
   await db.transaction(async (tx) => {
     const [game] = await tx.select({ id: games.id, state: games.state })
       .from(games).where(eq(games.id, gameId)).for('update');
-    if (!game || game.state !== 'flying') return;
+    if (!game || game.state === 'crashed') return;
 
     const gameBets = await tx.select().from(bets)
       .where(and(eq(bets.gameId, gameId), eq(bets.state, 'active')))
