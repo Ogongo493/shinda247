@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
+import { BrandLogo } from "@/components/brand-logo";
 
 function normalizePhone(phone: string): string {
   const digits = phone.replace(/\D/g, "");
@@ -48,9 +49,7 @@ export default function LoginPage() {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
-          <div className="flex items-center justify-center gap-2 text-primary font-display font-bold text-3xl tracking-tighter mb-2">
-            <span>SHINDA<span className="text-foreground">24/7</span></span>
-          </div>
+          <div className="mb-3 flex justify-center"><BrandLogo size="lg" /></div>
           <p className="text-muted-foreground">Sign in to your account</p>
         </div>
 
