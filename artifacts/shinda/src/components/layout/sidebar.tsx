@@ -59,21 +59,22 @@ export function Sidebar() {
           </div>
         </div>
 
-        <nav className="flex-1 py-6 px-4 space-y-2">
+        <nav aria-label="Primary navigation" className="flex-1 py-6 px-4 space-y-2">
           {NAV_ITEMS.map((item) => {
             const isActive = location === item.href;
             return (
               <Link
                 key={item.href}
                 href={item.href}
+                aria-current={isActive ? "page" : undefined}
                 className={cn(
-                  "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium",
+                  "flex items-center gap-3 px-4 py-3 rounded-xl transition-colors duration-200 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   isActive
                     ? "bg-primary/10 text-primary border border-primary/20 shadow-[inset_0_0_20px_rgba(255,107,0,0.05)]"
                     : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                 )}
               >
-                <item.icon className={cn("w-5 h-5", isActive && "fill-primary/20")} />
+                <item.icon aria-hidden="true" className="w-5 h-5 shrink-0" />
                 {item.label}
               </Link>
             );
@@ -97,7 +98,8 @@ export function Sidebar() {
         <div className="p-4 mt-auto border-t border-border/50">
           <button
             onClick={() => setHelpOpen(true)}
-            className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground transition-all duration-200 font-medium"
+            type="button"
+            className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors duration-200 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <HelpCircle className="w-5 h-5" />
             Help & Support
@@ -113,12 +115,13 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              aria-current={isActive ? "page" : undefined}
               className={cn(
-                "flex-1 flex flex-col items-center justify-center gap-1 py-3 transition-colors relative",
+                "flex-1 flex flex-col items-center justify-center gap-1 py-3 transition-colors relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                 isActive ? "text-primary" : "text-muted-foreground"
               )}
             >
-              <item.icon className={cn("w-5 h-5", isActive && "fill-primary/20")} />
+              <item.icon aria-hidden="true" className="w-5 h-5" />
               <span className="text-[10px] font-bold uppercase tracking-wider">{item.label}</span>
               {isActive && (
                 <div className="absolute bottom-0 w-8 h-0.5 bg-primary rounded-full" />
@@ -128,7 +131,9 @@ export function Sidebar() {
         })}
         <button
           onClick={() => setHelpOpen(true)}
-          className="flex-1 flex flex-col items-center justify-center gap-1 py-3 text-muted-foreground transition-colors"
+          type="button"
+          aria-label="Open help and support"
+          className="flex-1 flex flex-col items-center justify-center gap-1 py-3 text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         >
           <HelpCircle className="w-5 h-5" />
           <span className="text-[10px] font-bold uppercase tracking-wider">Help</span>
