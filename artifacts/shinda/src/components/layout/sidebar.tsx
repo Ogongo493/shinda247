@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { BrandLogo } from "@/components/brand-logo";
 
 const NAV_ITEMS = [
   { href: "/",             label: "Home",          icon: Home },
@@ -54,9 +55,7 @@ export function Sidebar() {
       {/* ── Desktop sidebar (md+) ─────────────────────────────────────── */}
       <aside className="w-64 h-full hidden md:flex flex-col bg-card border-r border-border/50 z-20">
         <div className="h-20 flex items-center px-6 border-b border-border/50">
-          <div className="flex items-center gap-2 text-primary font-display font-bold text-2xl tracking-tighter">
-            <span>SHINDA<span className="text-foreground">24/7</span></span>
-          </div>
+          <BrandLogo size="md" />
         </div>
 
         <nav aria-label="Primary navigation" className="flex-1 py-6 px-4 space-y-2">
