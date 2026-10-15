@@ -8,6 +8,7 @@
 
 export interface ActivePlayer {
   id: string;
+  betId?: number;
   username: string;
   amount: number;
   multiplier?: number | null;
