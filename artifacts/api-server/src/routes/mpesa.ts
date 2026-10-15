@@ -4,7 +4,7 @@ import { db } from "@workspace/db";
 import { wallets, transactions, mpesaCallbacks } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { initiateStkPush, initiateB2CPayment } from "../lib/daraja";
-import { creditWallet, debitWallet } from "@workspace/db";
+import { debitWallet } from "@workspace/db";
 import { requireAuth } from "./auth";
 import { logger } from "../lib/logger";
 
