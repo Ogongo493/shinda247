@@ -9,6 +9,7 @@ import { useLocation } from "wouter";
 import { DepositModal, WithdrawModal } from "@/components/wallet/wallet-modals";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { BrandLogo } from "@/components/brand-logo";
 
 // ── Confirm sign-out dialog ──────────────────────────────────────────────────
 function ConfirmLogoutDialog({ open, onConfirm, onCancel }: {
@@ -268,9 +269,7 @@ export function Topbar() {
       <header className="h-14 md:h-16 w-full bg-card border-b border-border/50 flex items-center justify-between px-3 md:px-6 z-20 shrink-0">
 
         {/* Mobile logo */}
-        <div className="flex items-center gap-2 text-primary font-display font-bold text-lg tracking-tighter md:hidden">
-          <span>SHINDA<span className="text-foreground">24/7</span></span>
-        </div>
+        <BrandLogo size="sm" className="md:hidden" />
 
         {/* Desktop user info */}
         <button
