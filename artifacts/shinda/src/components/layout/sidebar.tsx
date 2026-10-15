@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Home, Bell, History, Users, HelpCircle, Flame, Shield, Phone, Menu, X } from "lucide-react";
+import { Home, Bell, History, Users, HelpCircle, Shield, Phone, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
 import { useState } from "react";
@@ -55,7 +55,6 @@ export function Sidebar() {
       <aside className="w-64 h-full hidden md:flex flex-col bg-card border-r border-border/50 z-20">
         <div className="h-20 flex items-center px-6 border-b border-border/50">
           <div className="flex items-center gap-2 text-primary font-display font-bold text-2xl tracking-tighter">
-            <Flame className="w-8 h-8 fill-primary" />
             <span>SHINDA<span className="text-foreground">24/7</span></span>
           </div>
         </div>
