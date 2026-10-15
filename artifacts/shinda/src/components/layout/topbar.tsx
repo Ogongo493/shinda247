@@ -132,17 +132,13 @@ function ProfileDrawer({ open, onClose, user, balance, token, onLogout, onDeposi
 
   if (!open) return null;
 
-  const joinedDate = user?.id
-    ? new Date(2025, 0, 1) // placeholder — we'll show ID-based info
-    : null;
-
   return (
     <>
       {/* Backdrop */}
       <div className="fixed inset-0 bg-black/60 z-[90]" onClick={onClose} />
 
       {/* Drawer */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-sm bg-card border-l border-border/50 z-[100] flex flex-col shadow-2xl">
+      <div role="dialog" aria-modal="true" aria-label="My account" className="fixed inset-y-0 right-0 w-full max-w-sm bg-card border-l border-border/50 z-[100] flex flex-col shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
           <h2 className="font-display font-bold text-lg">My Account</h2>
@@ -159,9 +155,9 @@ function ProfileDrawer({ open, onClose, user, balance, token, onLogout, onDeposi
                 {user?.username?.charAt(0).toUpperCase() ?? "?"}
               </div>
               <div>
-                <p className="font-display font-bold text-xl uppercase">{user?.username}</p>
+                <p className="font-display font-bold text-lg break-words">{user?.username ?? "Account"}</p>
                 <p className="text-xs text-muted-foreground">ID: #{user?.id}</p>
-                <p className="text-xs text-muted-foreground">{user?.phone}</p>
+                <p className="text-xs text-muted-foreground">Phone: {user?.phone ?? "Not provided"}</p>
               </div>
             </div>
           </div>
@@ -294,7 +290,7 @@ export function Topbar() {
         <div className="flex items-center gap-2">
 
           {/* Balance chip */}
-          <div className="flex items-center bg-background rounded-xl px-2.5 py-1.5 border border-border/50 gap-2">
+          <div aria-label={`Wallet balance: KES ${formatCurrency(balance)}`} className="flex items-center bg-background rounded-xl px-2.5 py-1.5 border border-border/50 gap-2">
             <Wallet className="w-3.5 h-3.5 text-primary shrink-0" />
             <div className="flex flex-col leading-none">
               <span className="text-[9px] uppercase text-muted-foreground font-bold tracking-wider">Balance</span>
