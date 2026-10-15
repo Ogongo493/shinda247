@@ -2,7 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { db } from "@workspace/db";
 import { wallets, transactions, mpesaCallbacks } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { initiateStkPush, initiateB2CPayment } from "../lib/daraja";
 import { creditWallet, debitWallet } from "@workspace/db";
 import { requireAuth } from "./auth";
@@ -127,7 +127,11 @@ router.post("/callback", async (req: Request, res: Response) => {
     if (ResultCode !== 0) {
       await db.transaction(async (tx) => {
         const [pending] = await tx.select().from(transactions)
-          .where(eq(transactions.checkoutRequestId, CheckoutRequestID))
+          .where(and(
+            eq(transactions.checkoutRequestId, CheckoutRequestID),
+            eq(transactions.type, "deposit"),
+            eq(transactions.status, "pending"),
+          ))
           .for("update");
 
         if (pending?.type === "deposit" && pending.status === "pending") {
@@ -153,19 +157,27 @@ router.post("/callback", async (req: Request, res: Response) => {
 
     const outcome = await db.transaction(async (tx) => {
       const [pending] = await tx.select().from(transactions)
-        .where(eq(transactions.checkoutRequestId, CheckoutRequestID))
+        .where(and(
+          eq(transactions.checkoutRequestId, CheckoutRequestID),
+          eq(transactions.type, "deposit"),
+          eq(transactions.status, "pending"),
+        ))
         .for("update");
 
-      if (!pending || pending.type !== "deposit") {
-        logger.error({ CheckoutRequestID }, "No matching deposit transaction for M-Pesa callback");
-        return "unmatched" as const;
-      }
+      if (!pending) {
+        const [existing] = await tx.select({ id: transactions.id }).from(transactions)
+          .where(eq(transactions.checkoutRequestId, CheckoutRequestID))
+          .limit(1);
 
-      if (pending.status !== "pending") {
-        await tx.update(mpesaCallbacks)
-          .set({ processed: true, processedAt: new Date() })
-          .where(eq(mpesaCallbacks.checkoutRequestId, CheckoutRequestID));
-        return "already-processed" as const;
+        if (existing) {
+          await tx.update(mpesaCallbacks)
+            .set({ processed: true, processedAt: new Date() })
+            .where(eq(mpesaCallbacks.checkoutRequestId, CheckoutRequestID));
+          return "already-processed" as const;
+        }
+
+        logger.error({ CheckoutRequestID }, "No matching pending deposit transaction for M-Pesa callback");
+        return "unmatched" as const;
       }
 
       if (pending.amountCents !== amountCents) {
