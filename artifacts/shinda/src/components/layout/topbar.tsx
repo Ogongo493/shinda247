@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Wallet, Plus, Minus, Zap, LogOut, User, Settings, KeyRound, X, HelpCircle, ChevronRight } from "lucide-react";
+import { Wallet, ArrowDownToLine, ArrowUpFromLine, Zap, LogOut, User, Settings, KeyRound, X, HelpCircle, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatCurrency, cn } from "@/lib/utils";
@@ -169,10 +169,10 @@ function ProfileDrawer({ open, onClose, user, balance, token, onLogout, onDeposi
             <p className="text-3xl font-mono font-bold text-foreground">KES {formatCurrency(balance)}</p>
             <div className="flex gap-3 mt-4">
               <Button className="flex-1 gap-2" onClick={() => { onDeposit(); onClose(); }}>
-                <Plus className="w-4 h-4" /> Deposit
+                <ArrowDownToLine className="w-4 h-4" /> Deposit
               </Button>
               <Button variant="outline" className="flex-1 gap-2 border-border" onClick={() => { onWithdraw(); onClose(); }}>
-                <Minus className="w-4 h-4" /> Withdraw
+                <ArrowUpFromLine className="w-4 h-4" /> Withdraw
               </Button>
             </div>
           </div>
@@ -301,11 +301,11 @@ export function Topbar() {
 
           {/* Deposit + Withdraw — visible on ALL screen sizes */}
           <Button size="sm" aria-label="Deposit funds" className="h-8 px-2 sm:px-3 text-xs gap-1 shrink-0" onClick={() => setDepositOpen(true)}>
-            <Plus className="w-3.5 h-3.5" />
+            <ArrowDownToLine className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Deposit</span>
           </Button>
           <Button size="sm" variant="outline" aria-label="Withdraw funds" className="h-8 px-2 sm:px-3 text-xs gap-1 border-border shrink-0" onClick={() => setWithdrawOpen(true)}>
-            <Minus className="w-3.5 h-3.5" />
+            <ArrowUpFromLine className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Withdraw</span>
           </Button>
 
