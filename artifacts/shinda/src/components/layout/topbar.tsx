@@ -90,7 +90,7 @@ function ChangePasswordDialog({ open, onClose, token }: {
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex min-w-0 items-center gap-1 sm:gap-2">
             <KeyRound className="w-5 h-5 text-primary" />
             Change Password
           </DialogTitle>
@@ -266,10 +266,10 @@ export function Topbar() {
   return (
     <>
       {/* ── Header bar ───────────────────────────────────────────────── */}
-      <header className="h-14 md:h-16 w-full bg-card border-b border-border/50 flex items-center justify-between px-3 md:px-6 z-20 shrink-0">
+      <header className="min-h-14 md:h-16 w-full bg-card border-b border-border/50 flex items-center justify-between gap-1 sm:gap-2 px-2 sm:px-3 md:px-6 z-20 shrink-0">
 
         {/* Mobile logo */}
-        <BrandLogo size="sm" className="md:hidden" />
+        <BrandLogo size="sm" className="md:hidden shrink-0" />
 
         {/* Desktop user info */}
         <button
@@ -291,20 +291,20 @@ export function Topbar() {
         <div className="flex items-center gap-2">
 
           {/* Balance chip */}
-          <div role="group" aria-label={`Wallet balance: KES ${formatCurrency(balance)}`} className="flex items-center bg-background rounded-xl px-2.5 py-1.5 border border-border/50 gap-2">
+          <div role="group" aria-label={`Wallet balance: KES ${formatCurrency(balance)}`} className="flex min-w-0 shrink items-center bg-background rounded-lg sm:rounded-xl px-1.5 sm:px-2.5 py-1.5 border border-border/50 gap-1 sm:gap-2">
             <Wallet className="w-3.5 h-3.5 text-primary shrink-0" />
             <div className="flex flex-col leading-none">
-              <span className="text-[9px] uppercase text-muted-foreground font-bold tracking-wider">Balance</span>
-              <span className="font-mono font-bold text-xs md:text-sm text-foreground">KES {formatCurrency(balance)}</span>
+              <span className="hidden sm:block text-[9px] uppercase text-muted-foreground font-bold tracking-wider">Balance</span>
+              <span className="whitespace-nowrap font-mono font-bold text-[10px] sm:text-xs md:text-sm text-foreground">KES {formatCurrency(balance)}</span>
             </div>
           </div>
 
           {/* Deposit + Withdraw — visible on ALL screen sizes */}
-          <Button size="sm" aria-label="Deposit funds" className="h-8 px-3 text-xs gap-1" onClick={() => setDepositOpen(true)}>
+          <Button size="sm" aria-label="Deposit funds" className="h-8 px-2 sm:px-3 text-xs gap-1 shrink-0" onClick={() => setDepositOpen(true)}>
             <Plus className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Deposit</span>
           </Button>
-          <Button size="sm" variant="outline" aria-label="Withdraw funds" className="h-8 px-3 text-xs gap-1 border-border" onClick={() => setWithdrawOpen(true)}>
+          <Button size="sm" variant="outline" aria-label="Withdraw funds" className="h-8 px-2 sm:px-3 text-xs gap-1 border-border shrink-0" onClick={() => setWithdrawOpen(true)}>
             <Minus className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Withdraw</span>
           </Button>
@@ -314,7 +314,7 @@ export function Topbar() {
             type="button"
             aria-label={`Open account for ${user?.username ?? "your account"}`}
             onClick={() => setProfileOpen(true)}
-            className="w-8 h-8 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center text-primary font-bold font-display text-sm md:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="w-8 h-8 min-w-8 min-h-8 shrink-0 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center text-primary font-bold font-display text-sm md:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {avatarLetter}
           </button>
