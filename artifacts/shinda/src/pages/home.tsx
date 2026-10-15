@@ -57,11 +57,14 @@ export default function Home() {
           </div>
 
           {/* Mobile tab switcher */}
-          <div className="shrink-0 flex border-b border-border/50 bg-card px-2">
+          <div role="tablist" aria-label="Game panels" className="shrink-0 flex border-b border-border/50 bg-card px-2">
             <button
+              type="button"
+              role="tab"
+              aria-selected={mobileTab === "game"}
               onClick={() => setMobileTab("game")}
               className={cn(
-                "flex-1 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors relative",
+                "min-h-11 flex-1 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                 mobileTab === "game" ? "text-primary" : "text-muted-foreground"
               )}
             >
@@ -69,9 +72,12 @@ export default function Home() {
               {mobileTab === "game" && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
             </button>
             <button
+              type="button"
+              role="tab"
+              aria-selected={mobileTab === "bets"}
               onClick={() => setMobileTab("bets")}
               className={cn(
-                "flex-1 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors relative flex items-center justify-center gap-1",
+                "min-h-11 flex-1 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors relative flex items-center justify-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                 mobileTab === "bets" ? "text-primary" : "text-muted-foreground"
               )}
             >
@@ -85,9 +91,12 @@ export default function Home() {
               {mobileTab === "bets" && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
             </button>
             <button
+              type="button"
+              role="tab"
+              aria-selected={mobileTab === "history"}
               onClick={() => setMobileTab("history")}
               className={cn(
-                "flex-1 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors relative flex items-center justify-center gap-1",
+                "min-h-11 flex-1 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors relative flex items-center justify-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                 mobileTab === "history" ? "text-primary" : "text-muted-foreground"
               )}
             >
