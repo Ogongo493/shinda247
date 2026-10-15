@@ -248,6 +248,7 @@ export function getActivePlayers() {
 
     return {
       id:         String(bet.userId),
+      betId:      bet.betId,
       username:   bet.username,
       amount:     bet.amountCents / 100,
       multiplier: cashMult,
@@ -316,6 +317,9 @@ export async function cashOut(
 
   const game = getCurrentGame();
   if (!game) throw new Error("No active game");
+  if (bet.gameId !== game.id || bet.state !== "active") {
+    throw new Error("Bet is not active in the current round");
+  }
 
   const result = await processCashout(userId, game.id);
   if (!result.success) throw new Error(result.error ?? "Failed to cash out");
