@@ -18,6 +18,9 @@ jobs:
   build:
     name: Typecheck and build
     runs-on: ubuntu-latest
+    env:
+      PORT: 5000
+      BASE_PATH: /
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
