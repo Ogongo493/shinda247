@@ -17,6 +17,7 @@ export interface GameState {
 }
 
 export interface ActiveBet {
+  betId: number;
   userId: number;
   username: string;
   amountCents: number;
@@ -235,7 +236,7 @@ export async function placeBet(
     return { success: false, error: error instanceof Error ? error.message : 'Failed to place bet' };
   }
 
-  activeBets.set(userId, { userId, username, amountCents, autoCashoutAt, cashedOutAt: null });
+  activeBets.set(userId, { betId: placed.betId, userId, username, amountCents, autoCashoutAt, cashedOutAt: null });
   if (currentGame?.id === gameId) {
     currentGame.playerCount++;
     currentGame.totalBetsCents += amountCents;

@@ -119,6 +119,7 @@ router.get("/players", (_req, res) => {
   const data = GetActivePlayersResponse.parse(
     players.map(p => ({
       id:        p.id,
+      betId:     p.betId,
       username:  p.username,
       amount:    p.amount,
       multiplier: p.multiplier ?? null,

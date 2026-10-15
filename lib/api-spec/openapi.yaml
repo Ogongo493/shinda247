@@ -447,6 +447,8 @@ components:
       properties:
         id:
           type: string
+        betId:
+          type: integer
         username:
           type: string
         amount:

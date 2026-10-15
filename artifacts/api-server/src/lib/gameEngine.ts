@@ -248,6 +248,7 @@ export function getActivePlayers() {
 
     return {
       id:         String(bet.userId),
+      betId:      bet.betId,
       username:   bet.username,
       amount:     bet.amountCents / 100,
       multiplier: cashMult,
@@ -260,6 +261,7 @@ export function getActivePlayers() {
   // Merge in UI-only bots from the bot simulator
   const bots = Array.from(getActiveBotPlayers().values()).map(bot => ({
     id:         bot.id,
+    betId:      undefined,
     username:   bot.username,
     amount:     bot.amount,
     multiplier: null,
@@ -316,6 +318,9 @@ export async function cashOut(
 
   const game = getCurrentGame();
   if (!game) throw new Error("No active game");
+  if (bet.gameId !== game.id || bet.state !== "active") {
+    throw new Error("Bet is not active in the current round");
+  }
 
   const result = await processCashout(userId, game.id);
   if (!result.success) throw new Error(result.error ?? "Failed to cash out");

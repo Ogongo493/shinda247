@@ -79,6 +79,7 @@ export const CashOutResponse = zod.object({
  */
 export const GetActivePlayersResponseItem = zod.object({
   id: zod.string(),
+  betId: zod.number().optional(),
   username: zod.string(),
   amount: zod.number(),
   multiplier: zod.number().nullish(),
