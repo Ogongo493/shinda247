@@ -2,7 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { db } from "@workspace/db";
 import { wallets, transactions, mpesaCallbacks } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { initiateStkPush, initiateB2CPayment } from "../lib/daraja";
 import { creditWallet, debitWallet } from "@workspace/db";
 import { requireAuth } from "./auth";
@@ -21,7 +21,7 @@ const pendingDeposits = new Map<string, number>();
 
 const DepositSchema = z.object({
   phone:     z.string().min(9).max(15),
-  amountKes: z.number().min(MIN_DEPOSIT_KES).max(MAX_DEPOSIT_KES),
+  amountKes: z.number().int().min(MIN_DEPOSIT_KES).max(MAX_DEPOSIT_KES),
 });
 
 router.post("/deposit", requireAuth, async (req: Request, res: Response) => {
@@ -94,6 +94,7 @@ const CallbackSchema = z.object({
 });
 
 router.post("/callback", async (req: Request, res: Response) => {
+  // Safaricom expects a prompt acknowledgement; processing continues server-side.
   res.json({ ResultCode: 0, ResultDesc: "Accepted" });
 
   try {
@@ -105,70 +106,129 @@ router.post("/callback", async (req: Request, res: Response) => {
 
     const cb = body.data.Body.stkCallback;
     const { MerchantRequestID, CheckoutRequestID, ResultCode, ResultDesc, CallbackMetadata } = cb;
-
-    const getItem = (name: string) =>
-      CallbackMetadata?.Item.find(i => i.Name === name)?.Value;
+    const getItem = (name: string) => CallbackMetadata?.Item.find(i => i.Name === name)?.Value;
 
     const amountKes = Number(getItem("Amount") ?? 0);
-    const mpesaRef  = String(getItem("MpesaReceiptNumber") ?? "");
-    const phone     = String(getItem("PhoneNumber") ?? "");
+    const amountCents = Math.round(amountKes * 100);
+    const mpesaRef = String(getItem("MpesaReceiptNumber") ?? "");
+    const phone = String(getItem("PhoneNumber") ?? "");
 
     await db.insert(mpesaCallbacks).values({
-      checkoutRequestId:  CheckoutRequestID,
-      merchantRequestId:  MerchantRequestID,
-      resultCode:         ResultCode,
-      resultDesc:         ResultDesc,
-      amountCents:        Math.round(amountKes * 100),
+      checkoutRequestId: CheckoutRequestID,
+      merchantRequestId: MerchantRequestID,
+      resultCode: ResultCode,
+      resultDesc: ResultDesc,
+      amountCents: Number.isFinite(amountCents) ? amountCents : 0,
       mpesaReceiptNumber: mpesaRef || null,
-      phoneNumber:        phone || null,
-      rawPayload:         JSON.stringify(req.body),
+      phoneNumber: phone || null,
+      rawPayload: JSON.stringify(req.body),
     }).onConflictDoNothing();
 
     if (ResultCode !== 0) {
-      logger.info({ CheckoutRequestID, ResultCode, ResultDesc }, "M-Pesa payment failed/cancelled");
-      // Mark pending transaction as failed
-      await db.update(transactions)
-        .set({ status: "failed", failureReason: ResultDesc, processedAt: new Date() })
-        .where(eq(transactions.checkoutRequestId, CheckoutRequestID));
+      await db.transaction(async (tx) => {
+        const [pending] = await tx.select().from(transactions)
+          .where(eq(transactions.checkoutRequestId, CheckoutRequestID))
+          .for("update");
+
+        if (pending?.type === "deposit" && pending.status === "pending") {
+          await tx.update(transactions)
+            .set({ status: "failed", failureReason: ResultDesc, processedAt: new Date() })
+            .where(eq(transactions.id, pending.id));
+        }
+
+        await tx.update(mpesaCallbacks)
+          .set({ processed: true, processedAt: new Date() })
+          .where(eq(mpesaCallbacks.checkoutRequestId, CheckoutRequestID));
+      });
+
       pendingDeposits.delete(CheckoutRequestID);
+      logger.info({ CheckoutRequestID, ResultCode, ResultDesc }, "M-Pesa payment failed/cancelled");
       return;
     }
 
-    // Resolve the user who initiated this deposit
-    const userId = await resolveUserFromCheckoutRequest(CheckoutRequestID);
-    if (!userId) {
-      logger.error({ CheckoutRequestID }, "Could not resolve userId from checkoutRequestId");
+    if (!Number.isSafeInteger(amountKes) || amountKes <= 0 || !mpesaRef) {
+      logger.error({ CheckoutRequestID, amountKes, mpesaRef }, "M-Pesa success callback missing a valid amount or receipt; not crediting wallet");
       return;
     }
 
-    // Idempotency: check if already processed
-    const alreadyDone = await db.select({ id: transactions.id })
-      .from(transactions)
-      .where(eq(transactions.checkoutRequestId, CheckoutRequestID));
+    const outcome = await db.transaction(async (tx) => {
+      const [pending] = await tx.select().from(transactions)
+        .where(eq(transactions.checkoutRequestId, CheckoutRequestID))
+        .for("update");
 
-    const existing = alreadyDone.find(t => t.id);
-    // Check via mpesaRef to avoid double credits
-    if (mpesaRef) {
-      const withRef = await db.select({ id: transactions.id }).from(transactions)
-        .where(eq(transactions.mpesaRef, mpesaRef));
-      if (withRef.length > 0) {
-        logger.info({ CheckoutRequestID, mpesaRef }, "Duplicate M-Pesa callback — already credited");
-        return;
+      if (!pending || pending.type !== "deposit") {
+        logger.error({ CheckoutRequestID }, "No matching deposit transaction for M-Pesa callback");
+        return "unmatched" as const;
       }
-    }
 
-    const amountCents = Math.round(amountKes * 100);
-    await creditWallet(userId, amountCents, "deposit", {
-      mpesaRef,
-      checkoutRequestId: CheckoutRequestID,
-      mpesaPhone: phone,
-      description: `M-Pesa deposit KES ${amountKes} (${mpesaRef})`,
+      if (pending.status !== "pending") {
+        await tx.update(mpesaCallbacks)
+          .set({ processed: true, processedAt: new Date() })
+          .where(eq(mpesaCallbacks.checkoutRequestId, CheckoutRequestID));
+        return "already-processed" as const;
+      }
+
+      if (pending.amountCents !== amountCents) {
+        logger.error({
+          CheckoutRequestID,
+          expectedAmountCents: pending.amountCents,
+          callbackAmountCents: amountCents,
+          mpesaRef,
+        }, "M-Pesa callback amount mismatch; wallet not credited");
+        await tx.update(mpesaCallbacks)
+          .set({ processed: true, processedAt: new Date() })
+          .where(eq(mpesaCallbacks.checkoutRequestId, CheckoutRequestID));
+        return "amount-mismatch" as const;
+      }
+
+      const [duplicateReceipt] = await tx.select({ id: transactions.id }).from(transactions)
+        .where(eq(transactions.mpesaRef, mpesaRef))
+        .limit(1);
+
+      if (duplicateReceipt && duplicateReceipt.id !== pending.id) {
+        logger.error({ CheckoutRequestID, mpesaRef }, "M-Pesa receipt already belongs to another transaction; wallet not credited");
+        await tx.update(mpesaCallbacks)
+          .set({ processed: true, processedAt: new Date() })
+          .where(eq(mpesaCallbacks.checkoutRequestId, CheckoutRequestID));
+        return "duplicate-receipt" as const;
+      }
+
+      const [wallet] = await tx.select().from(wallets)
+        .where(eq(wallets.userId, pending.userId))
+        .for("update");
+
+      if (!wallet) throw new Error(`Wallet not found for user ${pending.userId}`);
+
+      const balanceAfter = wallet.balanceCents + amountCents;
+      await tx.update(wallets).set({
+        balanceCents: balanceAfter,
+        totalDeposited: sql`${wallets.totalDeposited} + ${amountCents}`,
+        updatedAt: new Date(),
+      }).where(eq(wallets.userId, pending.userId));
+
+      await tx.update(transactions).set({
+        status: "completed",
+        mpesaRef,
+        mpesaPhone: phone || pending.mpesaPhone,
+        balanceBefore: wallet.balanceCents,
+        balanceAfter,
+        description: `M-Pesa deposit KES ${amountKes} (${mpesaRef})`,
+        processedAt: new Date(),
+      }).where(eq(transactions.id, pending.id));
+
+      await tx.update(mpesaCallbacks)
+        .set({ processed: true, processedAt: new Date() })
+        .where(eq(mpesaCallbacks.checkoutRequestId, CheckoutRequestID));
+
+      return "credited" as const;
     });
 
-    // Clean up the in-memory map
-    pendingDeposits.delete(CheckoutRequestID);
-
-    logger.info({ userId, amountKes, mpesaRef }, "Wallet credited from M-Pesa deposit");
+    if (outcome === "credited" || outcome === "already-processed" || outcome === "amount-mismatch" || outcome === "duplicate-receipt") {
+      pendingDeposits.delete(CheckoutRequestID);
+    }
+    if (outcome === "credited") {
+      logger.info({ CheckoutRequestID, amountKes, mpesaRef }, "Wallet credited from verified M-Pesa deposit");
+    }
   } catch (err) {
     logger.error({ err }, "Error processing M-Pesa callback");
   }
@@ -176,7 +236,7 @@ router.post("/callback", async (req: Request, res: Response) => {
 
 const WithdrawSchema = z.object({
   phone:     z.string().min(9).max(15),
-  amountKes: z.number().min(MIN_WITHDRAWAL_KES).max(MAX_WITHDRAWAL_KES),
+  amountKes: z.number().int().min(MIN_WITHDRAWAL_KES).max(MAX_WITHDRAWAL_KES),
 });
 
 router.post("/withdraw", requireAuth, async (req: Request, res: Response) => {
