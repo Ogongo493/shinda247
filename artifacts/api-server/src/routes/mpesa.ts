@@ -335,6 +335,15 @@ router.post("/withdraw", requireAuth, async (req: Request, res: Response) => {
   const b2cResult = await initiateB2CPayment(phone, amountKes, `Shinda247 withdrawal`);
 
   if (!b2cResult.success) {
+    if (b2cResult.uncertain) {
+      logger.error({ transactionId: debitResult.transactionId }, "B2C outcome uncertain; keeping withdrawal pending instead of refunding");
+      res.status(202).json({
+        message: b2cResult.error ?? "Withdrawal submitted; confirmation is pending.",
+        newBalanceCents: debitResult.newBalanceCents,
+      });
+      return;
+    }
+
     await refundPendingWithdrawal(debitResult.transactionId, b2cResult.error ?? "B2C request rejected");
     res.status(502).json({ error: b2cResult.error ?? "Withdrawal failed" });
     return;
