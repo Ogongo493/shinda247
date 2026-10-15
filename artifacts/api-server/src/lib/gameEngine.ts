@@ -261,6 +261,7 @@ export function getActivePlayers() {
   // Merge in UI-only bots from the bot simulator
   const bots = Array.from(getActiveBotPlayers().values()).map(bot => ({
     id:         bot.id,
+    betId:      undefined,
     username:   bot.username,
     amount:     bot.amount,
     multiplier: null,
