@@ -1,6 +1,10 @@
 import crypto from "crypto";
 
-const JWT_SECRET = process.env.JWT_SECRET ?? "shinda247-dev-secret-change-in-production";
+const configuredJwtSecret = process.env.JWT_SECRET;
+if (process.env.NODE_ENV === "production" && (!configuredJwtSecret || configuredJwtSecret.length < 32)) {
+  throw new Error("JWT_SECRET must be configured with at least 32 characters in production.");
+}
+const JWT_SECRET = configuredJwtSecret ?? "shinda247-dev-secret-change-in-production";
 const JWT_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
 function base64url(data: string | Buffer): string {
@@ -42,7 +46,7 @@ export function verifyJwt(token: string): JwtPayload | null {
     );
     if (sig !== expected) return null;
     const payload = JSON.parse(base64urlDecode(body).toString()) as JwtPayload;
-    if (payload.exp < Math.floor(Date.now() / 1000)) return null;
+    if (!Number.isFinite(payload.exp) || payload.exp <= Math.floor(Date.now() / 1000)) return null;
     return payload;
   } catch {
     return null;
