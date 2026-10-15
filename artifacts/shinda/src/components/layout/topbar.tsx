@@ -132,22 +132,18 @@ function ProfileDrawer({ open, onClose, user, balance, token, onLogout, onDeposi
 
   if (!open) return null;
 
-  const joinedDate = user?.id
-    ? new Date(2025, 0, 1) // placeholder — we'll show ID-based info
-    : null;
-
   return (
     <>
       {/* Backdrop */}
       <div className="fixed inset-0 bg-black/60 z-[90]" onClick={onClose} />
 
       {/* Drawer */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-sm bg-card border-l border-border/50 z-[100] flex flex-col shadow-2xl">
+      <div role="dialog" aria-modal="true" aria-label="My account" className="fixed inset-y-0 right-0 w-full max-w-sm bg-card border-l border-border/50 z-[100] flex flex-col shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
           <h2 className="font-display font-bold text-lg">My Account</h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-secondary transition-colors">
-            <X className="w-4 h-4" />
+          <button type="button" aria-label="Close account panel" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <X aria-hidden="true" className="w-4 h-4" />
           </button>
         </div>
 
@@ -159,9 +155,9 @@ function ProfileDrawer({ open, onClose, user, balance, token, onLogout, onDeposi
                 {user?.username?.charAt(0).toUpperCase() ?? "?"}
               </div>
               <div>
-                <p className="font-display font-bold text-xl uppercase">{user?.username}</p>
+                <p className="font-display font-bold text-lg break-words">{user?.username ?? "Account"}</p>
                 <p className="text-xs text-muted-foreground">ID: #{user?.id}</p>
-                <p className="text-xs text-muted-foreground">{user?.phone}</p>
+                <p className="text-xs text-muted-foreground">Phone: {user?.phone ?? "Not provided"}</p>
               </div>
             </div>
           </div>
@@ -278,14 +274,16 @@ export function Topbar() {
 
         {/* Desktop user info */}
         <button
+          type="button"
+          aria-label={`Open account for ${user?.username ?? "your account"}`}
           onClick={() => setProfileOpen(true)}
-          className="hidden md:flex items-center gap-3 hover:bg-secondary rounded-xl p-2 transition-colors"
+          className="hidden md:flex items-center gap-3 hover:bg-secondary rounded-xl p-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <div className="w-10 h-10 rounded-full border-2 border-primary/50 flex items-center justify-center bg-primary/10 text-primary font-bold font-display">
             {avatarLetter}
           </div>
           <div className="text-left">
-            <p className="text-sm font-bold text-foreground font-display uppercase">{user?.username ?? "—"}</p>
+            <p className="text-sm font-bold text-foreground font-display">{user?.username ?? "—"}</p>
             <p className="text-xs text-muted-foreground">ID: {user?.id ?? "—"}</p>
           </div>
         </button>
@@ -294,7 +292,7 @@ export function Topbar() {
         <div className="flex items-center gap-2">
 
           {/* Balance chip */}
-          <div className="flex items-center bg-background rounded-xl px-2.5 py-1.5 border border-border/50 gap-2">
+          <div role="group" aria-label={`Wallet balance: KES ${formatCurrency(balance)}`} className="flex items-center bg-background rounded-xl px-2.5 py-1.5 border border-border/50 gap-2">
             <Wallet className="w-3.5 h-3.5 text-primary shrink-0" />
             <div className="flex flex-col leading-none">
               <span className="text-[9px] uppercase text-muted-foreground font-bold tracking-wider">Balance</span>
@@ -303,30 +301,31 @@ export function Topbar() {
           </div>
 
           {/* Deposit + Withdraw — visible on ALL screen sizes */}
-          <Button size="sm" className="h-8 px-3 text-xs gap-1" onClick={() => setDepositOpen(true)}>
+          <Button size="sm" aria-label="Deposit funds" className="h-8 px-3 text-xs gap-1" onClick={() => setDepositOpen(true)}>
             <Plus className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Deposit</span>
-            <span className="sm:hidden">+</span>
           </Button>
-          <Button size="sm" variant="outline" className="h-8 px-3 text-xs gap-1 border-border" onClick={() => setWithdrawOpen(true)}>
+          <Button size="sm" variant="outline" aria-label="Withdraw funds" className="h-8 px-3 text-xs gap-1 border-border" onClick={() => setWithdrawOpen(true)}>
             <Minus className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Withdraw</span>
-            <span className="sm:hidden">-</span>
           </Button>
 
           {/* Profile avatar — mobile (opens drawer) */}
           <button
+            type="button"
+            aria-label={`Open account for ${user?.username ?? "your account"}`}
             onClick={() => setProfileOpen(true)}
-            className="w-8 h-8 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center text-primary font-bold font-display text-sm md:hidden"
+            className="w-8 h-8 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center text-primary font-bold font-display text-sm md:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {avatarLetter}
           </button>
 
           {/* Desktop logout */}
           <button
+            type="button"
             onClick={() => setConfirmLogout(true)}
-            title="Sign out"
-            className="hidden md:flex w-9 h-9 items-center justify-center rounded-xl text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+            aria-label="Sign out"
+            className="hidden md:flex w-9 h-9 items-center justify-center rounded-xl text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <LogOut className="w-4 h-4" />
           </button>
