@@ -31,9 +31,10 @@ export function GameControls({ userId, gameState, activePlayers }: GameControlsP
   const roundId  = gameState?.roundId ?? null;
   const playerId = String(userId);
   const me        = activePlayers?.find(p => p.id === playerId);
+  const activeBetId = me?.betId ?? currentBetId;
   const hasBet    = !!me || currentBetId !== null;
   const cashedOut = me?.cashedOut ?? false;
-  const canCashOut = hasBet && !cashedOut && phase === "flying" && currentBetId !== null;
+  const canCashOut = hasBet && !cashedOut && phase === "flying" && activeBetId !== null;
 
   useEffect(() => {
     if (roundId !== null && roundId !== prevRoundId.current && phase === "waiting") {
@@ -56,9 +57,9 @@ export function GameControls({ userId, gameState, activePlayers }: GameControlsP
   }
 
   const handleAction = () => {
-    if (canCashOut && currentBetId !== null) {
+    if (canCashOut && activeBetId !== null) {
       cashOutMutation.mutate(
-        { data: { betId: currentBetId, playerId } },
+        { data: { betId: activeBetId, playerId } },
         {
           onSuccess: (res) => {
             setCurrentBetId(null);
