@@ -5,8 +5,11 @@ const CONSUMER_SECRET = process.env.MPESA_CONSUMER_SECRET ?? "";
 const SHORTCODE       = process.env.MPESA_SHORTCODE ?? "174379";
 const PASSKEY         = process.env.MPESA_PASSKEY ?? "";
 const B2C_SHORTCODE   = process.env.MPESA_B2C_SHORTCODE ?? SHORTCODE;
+const B2C_INITIATOR   = process.env.MPESA_B2C_INITIATOR_NAME ?? "";
+const B2C_SECURITY_CREDENTIAL = process.env.MPESA_B2C_SECURITY_CREDENTIAL ?? "";
 const CALLBACK_BASE   = process.env.MPESA_CALLBACK_BASE_URL ?? "";
 const ENVIRONMENT     = process.env.MPESA_ENVIRONMENT ?? "sandbox";
+const MOCK_MODE       = process.env.MPESA_MOCK_MODE === "true" && process.env.NODE_ENV !== "production";
 
 const BASE_URL =
   ENVIRONMENT === "production"
@@ -64,21 +67,24 @@ export async function initiateStkPush(
   accountRef: string,
   description: string
 ): Promise<StkPushResult> {
-  if (!CONSUMER_KEY || !CONSUMER_SECRET || !PASSKEY) {
-    logger.warn("M-Pesa credentials not configured — using mock STK push");
-    return {
-      success: true,
-      checkoutRequestId: `mock-${Date.now()}`,
-      merchantRequestId: `mock-merchant-${Date.now()}`,
-    };
+  if (!CONSUMER_KEY || !CONSUMER_SECRET || !PASSKEY || !CALLBACK_BASE) {
+    if (MOCK_MODE) {
+      logger.warn("M-Pesa credentials/callback URL missing — explicit non-production mock mode enabled");
+      return {
+        success: true,
+        checkoutRequestId: `mock-${Date.now()}`,
+        merchantRequestId: `mock-merchant-${Date.now()}`,
+      };
+    }
+    logger.error("M-Pesa STK Push unavailable: required credentials or callback URL missing");
+    return { success: false, error: "M-Pesa is not configured. Please contact support." };
   }
 
   try {
     const token = await getAccessToken();
     const timestamp = getTimestamp();
     const password = getPassword(timestamp);
-
-    const callbackUrl = `${CALLBACK_BASE}/api/mpesa/callback`;
+    const callbackUrl = `${CALLBACK_BASE.replace(/\/$/, "")}/api/mpesa/callback`;
 
     const body = {
       BusinessShortCode: SHORTCODE,
@@ -132,19 +138,24 @@ export async function initiateB2CPayment(
   amountKes: number,
   occasion: string
 ): Promise<B2CResult> {
-  if (!CONSUMER_KEY || !CONSUMER_SECRET) {
-    logger.warn("M-Pesa credentials not configured — using mock B2C");
-    return { success: true, conversationId: `mock-b2c-${Date.now()}` };
+  if (!CONSUMER_KEY || !CONSUMER_SECRET || !B2C_INITIATOR || !B2C_SECURITY_CREDENTIAL || !CALLBACK_BASE) {
+    if (MOCK_MODE) {
+      logger.warn("M-Pesa B2C credentials/callback URL missing — explicit non-production mock mode enabled");
+      return { success: true, conversationId: `mock-b2c-${Date.now()}` };
+    }
+    logger.error("M-Pesa B2C unavailable: required credentials or callback URL missing");
+    return { success: false, error: "M-Pesa withdrawals are not configured. Please contact support." };
   }
 
   try {
     const token = await getAccessToken();
-    const resultUrl   = `${CALLBACK_BASE}/api/mpesa/b2c-result`;
-    const timeoutUrl  = `${CALLBACK_BASE}/api/mpesa/b2c-timeout`;
+    const callbackBase = CALLBACK_BASE.replace(/\/$/, "");
+    const resultUrl = `${callbackBase}/api/mpesa/b2c-result`;
+    const timeoutUrl = `${callbackBase}/api/mpesa/b2c-timeout`;
 
     const body = {
-      InitiatorName: "testapi",
-      SecurityCredential: "",
+      InitiatorName: B2C_INITIATOR,
+      SecurityCredential: B2C_SECURITY_CREDENTIAL,
       CommandID: "BusinessPayment",
       Amount: Math.floor(amountKes),
       PartyA: B2C_SHORTCODE,
@@ -166,11 +177,11 @@ export async function initiateB2CPayment(
 
     const data = (await res.json()) as Record<string, unknown>;
 
-    if (!res.ok) {
+    if (!res.ok || !data["ConversationID"]) {
       return { success: false, error: String(data["errorMessage"] ?? "B2C request failed") };
     }
 
-    return { success: true, conversationId: String(data["ConversationID"] ?? "") };
+    return { success: true, conversationId: String(data["ConversationID"]) };
   } catch (err) {
     logger.error({ err }, "B2C payment error");
     return { success: false, error: "M-Pesa service unavailable" };
