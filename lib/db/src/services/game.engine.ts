@@ -363,15 +363,3 @@ async function recoverInterruptedGame(gameId: number): Promise<void> {
   });
 }
 
-gameId: number): Promise<void> {
-  const gameBets = await db.select().from(bets).where(eq(bets.gameId, gameId));
-  for (const bet of gameBets) {
-    if (bet.state === 'active') {
-      await creditWallet(bet.userId, Number(bet.amountCents), 'refund', {
-        gameId, description: `Refund for interrupted game #${gameId}`,
-      });
-      await db.update(bets).set({ state: 'refunded' }).where(eq(bets.id, bet.id));
-    }
-  }
-  await db.update(games).set({ state: 'crashed', forced: true }).where(eq(games.id, gameId));
-}
