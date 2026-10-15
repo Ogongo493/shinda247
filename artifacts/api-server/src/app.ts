@@ -14,9 +14,10 @@ const STATIC_DIR =
     ? path.resolve(__dirname, "..", "..", "..", "public")
     : null;
 
-// Allowed origins: Railway domain + localhost for dev
+// Allow the canonical URL supplied by Render, plus explicit local/Railway origins.
 const ALLOWED_ORIGINS = [
-  process.env.CORS_ORIGIN,                          // set this in Railway env vars
+  process.env.CORS_ORIGIN,
+  process.env.RENDER_EXTERNAL_URL,
   "https://shinda247-production.up.railway.app",
   "http://localhost:5000",
   "http://localhost:3000",
@@ -24,22 +25,21 @@ const ALLOWED_ORIGINS = [
 
 const app: Express = express();
 
-// ── Security headers ──────────────────────────────────────────────────────────
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
-      defaultSrc:  ["'self'"],
-      scriptSrc:   ["'self'", "'unsafe-inline'"],   // Vite inlines bootstrap script
-      styleSrc:    ["'self'", "'unsafe-inline'"],
-      imgSrc:      ["'self'", "data:", "blob:"],
-      connectSrc:  ["'self'", "wss:", "ws:"],       // Socket.io WebSocket
-      fontSrc:     ["'self'"],
-      objectSrc:   ["'none'"],
-      frameSrc:    ["'none'"],                      // blocks clickjacking via iframes
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:"],
+      connectSrc: ["'self'", "wss:", "ws:"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameSrc: ["'none'"],
       upgradeInsecureRequests: [],
     },
   },
-  crossOriginEmbedderPolicy: false,                 // required for Socket.io
+  crossOriginEmbedderPolicy: false,
 }));
 
 app.use(
@@ -47,16 +47,10 @@ app.use(
     logger,
     serializers: {
       req(req) {
-        return {
-          id: req.id,
-          method: req.method,
-          url: req.url?.split("?")[0],
-        };
+        return { id: req.id, method: req.method, url: req.url?.split("?")[0] };
       },
       res(res) {
-        return {
-          statusCode: res.statusCode,
-        };
+        return { statusCode: res.statusCode };
       },
     },
   }),
@@ -64,7 +58,6 @@ app.use(
 app.use(
   cors({
     origin: (origin, cb) => {
-      // Allow server-to-server requests (no origin) and whitelisted origins
       if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
       cb(new Error(`CORS: origin ${origin} not allowed`));
     },
@@ -76,11 +69,8 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
 
-// Serve the compiled React frontend in production.
-// Must come AFTER /api so API routes are never shadowed.
 if (STATIC_DIR) {
   app.use(express.static(STATIC_DIR));
-  // SPA fallback — any non-API path returns index.html
   app.get(/.*/, (_req, res) => {
     res.sendFile(path.join(STATIC_DIR, "index.html"));
   });

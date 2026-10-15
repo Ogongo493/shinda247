@@ -1,0 +1,27 @@
+# Render Blueprint for a disposable staging deployment.
+# Keep Daraja in sandbox; never configure production payment credentials here.
+services:
+  - type: web
+    name: shinda247-staging
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: MPESA_ENVIRONMENT
+        value: sandbox
+      - key: MPESA_SHORTCODE
+        value: "174379"
+      - key: MPESA_CALLBACK_BASE_URL
+        sync: false
+      - key: AT_ENV
+        value: sandbox
+      - key: AT_USERNAME
+        value: sandbox
