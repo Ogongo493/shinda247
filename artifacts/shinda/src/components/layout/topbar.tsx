@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Wallet, Plus, Minus, Zap, LogOut, Flame, User, Settings, KeyRound, X, HelpCircle, ChevronRight } from "lucide-react";
+import { Wallet, Plus, Minus, Zap, LogOut, User, Settings, KeyRound, X, HelpCircle, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatCurrency, cn } from "@/lib/utils";
@@ -273,7 +273,6 @@ export function Topbar() {
 
         {/* Mobile logo */}
         <div className="flex items-center gap-2 text-primary font-display font-bold text-lg tracking-tighter md:hidden">
-          <Flame className="w-6 h-6 fill-primary" />
           <span>SHINDA<span className="text-foreground">24/7</span></span>
         </div>
 
