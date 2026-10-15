@@ -13,6 +13,11 @@ const sizeClasses = {
   lg: { mark: "h-10 w-10", word: "text-3xl", gap: "gap-3" },
 };
 
+/**
+ * SHINDA24/7 brand mark.
+ * The angular S is a custom, scalable vector: clear at favicon size,
+ * recognizable without the wordmark, and independent of decorative imagery.
+ */
 export function BrandLogo({ size = "md", className, showTagline = false }: BrandLogoProps) {
   const scale = sizeClasses[size];
 
@@ -25,9 +30,21 @@ export function BrandLogo({ size = "md", className, showTagline = false }: Brand
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
       >
-        <rect x="1" y="1" width="38" height="38" rx="11" fill="currentColor" className="text-primary" />
-        <path d="M10 26.5L17 19.5L21.5 24L30 13.5" stroke="white" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M23.5 13.5H30V20" stroke="white" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+        <defs>
+          <linearGradient id="shinda-mark-orange" x1="5" y1="6" x2="34" y2="34" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#FF8A1F" />
+            <stop offset="1" stopColor="#FF5A00" />
+          </linearGradient>
+        </defs>
+        <rect x="1" y="1" width="38" height="38" rx="11" fill="url(#shinda-mark-orange)" />
+        <path
+          d="M12 8H26.5L32 13.5L22 20.5L28 26.5L22.5 32H8.5L4.5 28L14.5 19.5L8.5 13.5L12 8Z"
+          fill="white"
+          stroke="white"
+          strokeWidth="0.5"
+          strokeLinejoin="round"
+        />
+        <path d="M13 13H22L18 16.5L22.5 20.5L17 25.5H12L18 20L13 15.5L13 13Z" fill="#FF6B00" />
       </svg>
       <span className="flex flex-col leading-none">
         <span className={cn("font-display font-bold tracking-tight", scale.word)}>
