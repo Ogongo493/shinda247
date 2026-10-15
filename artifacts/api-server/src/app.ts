@@ -25,6 +25,10 @@ const ALLOWED_ORIGINS = [
 
 const app: Express = express();
 
+// Render terminates TLS and forwards requests through one trusted proxy.
+// Trusting the proxy lets express-rate-limit use the real client IP safely.
+app.set("trust proxy", 1);
+
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
