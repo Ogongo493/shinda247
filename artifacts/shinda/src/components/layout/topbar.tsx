@@ -142,8 +142,8 @@ function ProfileDrawer({ open, onClose, user, balance, token, onLogout, onDeposi
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
           <h2 className="font-display font-bold text-lg">My Account</h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-secondary transition-colors">
-            <X className="w-4 h-4" />
+          <button type="button" aria-label="Close account panel" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <X aria-hidden="true" className="w-4 h-4" />
           </button>
         </div>
 
@@ -274,14 +274,16 @@ export function Topbar() {
 
         {/* Desktop user info */}
         <button
+          type="button"
+          aria-label={`Open account for ${user?.username ?? "your account"}`}
           onClick={() => setProfileOpen(true)}
-          className="hidden md:flex items-center gap-3 hover:bg-secondary rounded-xl p-2 transition-colors"
+          className="hidden md:flex items-center gap-3 hover:bg-secondary rounded-xl p-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <div className="w-10 h-10 rounded-full border-2 border-primary/50 flex items-center justify-center bg-primary/10 text-primary font-bold font-display">
             {avatarLetter}
           </div>
           <div className="text-left">
-            <p className="text-sm font-bold text-foreground font-display uppercase">{user?.username ?? "—"}</p>
+            <p className="text-sm font-bold text-foreground font-display">{user?.username ?? "—"}</p>
             <p className="text-xs text-muted-foreground">ID: {user?.id ?? "—"}</p>
           </div>
         </button>
@@ -299,15 +301,13 @@ export function Topbar() {
           </div>
 
           {/* Deposit + Withdraw — visible on ALL screen sizes */}
-          <Button size="sm" className="h-8 px-3 text-xs gap-1" onClick={() => setDepositOpen(true)}>
+          <Button size="sm" aria-label="Deposit funds" className="h-8 px-3 text-xs gap-1" onClick={() => setDepositOpen(true)}>
             <Plus className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Deposit</span>
-            <span className="sm:hidden">+</span>
           </Button>
-          <Button size="sm" variant="outline" className="h-8 px-3 text-xs gap-1 border-border" onClick={() => setWithdrawOpen(true)}>
+          <Button size="sm" variant="outline" aria-label="Withdraw funds" className="h-8 px-3 text-xs gap-1 border-border" onClick={() => setWithdrawOpen(true)}>
             <Minus className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Withdraw</span>
-            <span className="sm:hidden">-</span>
           </Button>
 
           {/* Profile avatar — mobile (opens drawer) */}
