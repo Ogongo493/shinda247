@@ -128,9 +128,12 @@ export function GameControls({ userId, gameState, activePlayers }: GameControlsP
             {[10, 50, 100, 500, 1000, 3000].map(val => (
               <button
                 key={val}
+                type="button"
+                aria-pressed={amount === val.toString()}
+                aria-label={`Set bet amount to ${val} Kenyan shillings`}
                 onClick={() => setAmount(val.toString())}
                 disabled={hasBet || phase !== "waiting"}
-                className="py-1.5 bg-secondary hover:bg-secondary/80 rounded-lg text-xs font-mono font-bold text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                className={`min-h-10 rounded-lg border px-2 py-1.5 text-xs font-mono font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 ${amount === val.toString() ? "border-primary bg-primary/10 text-primary" : "border-transparent bg-secondary text-muted-foreground hover:bg-secondary/80 hover:text-foreground"}`}
               >
                 {val >= 1000 ? `${val / 1000}k` : val}
               </button>
@@ -156,9 +159,12 @@ export function GameControls({ userId, gameState, activePlayers }: GameControlsP
             {[1.5, 2, 5, 10].map(val => (
               <button
                 key={val}
+                type="button"
+                aria-pressed={autoCash === val.toFixed(2)}
+                aria-label={`Set automatic cash out to ${val} times`}
                 onClick={() => setAutoCash(val.toFixed(2))}
                 disabled={hasBet || phase !== "waiting"}
-                className="py-1.5 bg-secondary hover:bg-secondary/80 rounded-lg text-xs font-mono font-bold text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                className={`min-h-10 rounded-lg border px-2 py-1.5 text-xs font-mono font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 ${autoCash === val.toFixed(2) ? "border-primary bg-primary/10 text-primary" : "border-transparent bg-secondary text-muted-foreground hover:bg-secondary/80 hover:text-foreground"}`}
               >
                 {val}×
               </button>
