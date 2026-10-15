@@ -366,9 +366,10 @@ router.post("/withdraw", requireAuth, async (req: Request, res: Response) => {
 
   logger.info({ userId: user.sub, phone, amountKes, conversationId: b2cResult.conversationId, transactionId: debitResult.transactionId }, "B2C withdrawal initiated");
 
+  // Do not expose the provider correlation ID to the client; callbacks use it
+  // to settle the ledger and must remain an internal integration detail.
   res.json({
-    message: `KES ${amountKes} will be sent to ${phone} shortly.`,
-    conversationId: b2cResult.conversationId,
+    message: `KES ${amountKes} withdrawal is being processed.`,
     newBalanceCents: debitResult.newBalanceCents,
   });
 });
