@@ -33,7 +33,7 @@ export function GameCanvas({ gameState }: GameCanvasProps) {
     <div className={cn(
       "relative w-full bg-background rounded-2xl border border-border/50 shadow-2xl overflow-hidden flex flex-col",
       // Mobile: compact 180px, desktop: taller
-      "min-h-[180px] sm:min-h-[240px] md:min-h-[360px] lg:min-h-[420px]"
+      "min-h-[210px] sm:min-h-[240px] md:min-h-[360px] lg:min-h-[420px]"
     )}>
 
       {/* Starfield */}
