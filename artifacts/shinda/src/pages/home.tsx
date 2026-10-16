@@ -46,11 +46,11 @@ export default function Home() {
 
         {/* ── MOBILE layout (below md): natural page scrolling ── */}
         <div className="flex flex-col md:hidden flex-1">
-          <div className="shrink-0 p-2">
+          <div className="shrink-0 px-2 pt-1 pb-0">
             <GameCanvas gameState={gameState} />
           </div>
 
-          <section aria-label="Place a bet" className="p-2">
+          <section aria-label="Place a bet" className="px-2 pt-1 pb-2">
             <GameControls userId={user.id} gameState={gameState} activePlayers={activePlayers} />
           </section>
 
