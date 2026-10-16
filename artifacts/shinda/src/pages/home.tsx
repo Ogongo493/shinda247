@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { RightSidebar } from "@/components/layout/right-sidebar";
@@ -8,13 +7,10 @@ import { HistoryPanel } from "@/components/game/history-panel";
 import { useAuth } from "@/contexts/auth-context";
 import { useRtdb } from "@/contexts/rtdb-context";
 import { useGetGameState, useGetActivePlayers, getGetGameStateQueryKey, getGetActivePlayersQueryKey } from "@workspace/api-client-react";
-import { History, Users } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 export default function Home() {
   const { user } = useAuth();
   const { gameState: rtdbGameState, connected, liveBets } = useRtdb();
-  const [mobileTab, setMobileTab] = useState<"game" | "bets" | "history">("game");
 
   const { data: polledGameState } = useGetGameState({
     query: {
