@@ -122,6 +122,13 @@
   background: hsl(var(--muted-foreground));
 }
 
+/* Keep the compact mobile header usable on narrow phones. */
+@media (max-width: 400px) {
+  .brand-wordmark {
+    display: none;
+  }
+}
+
 /* Starfield animations */
 @keyframes twinkle {
   0%, 100% { opacity: 0.2; }

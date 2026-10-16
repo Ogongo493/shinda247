@@ -266,7 +266,7 @@ export function Topbar() {
   return (
     <>
       {/* ── Header bar ───────────────────────────────────────────────── */}
-      <header className="min-h-14 md:h-16 w-full bg-card border-b border-border/50 flex items-center justify-between gap-1 sm:gap-2 px-2 sm:px-3 md:px-6 z-20 shrink-0">
+      <header className="min-h-14 md:h-16 w-full min-w-0 bg-card border-b border-border/50 flex items-center justify-between gap-1 sm:gap-2 px-2 sm:px-3 md:px-6 z-20 shrink-0">
 
         {/* Mobile logo */}
         <BrandLogo size="sm" className="md:hidden shrink-0" />
@@ -288,7 +288,7 @@ export function Topbar() {
         </button>
 
         {/* Right actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-1 sm:gap-2">
 
           {/* Balance chip */}
           <div role="group" aria-label={`Wallet balance: KES ${formatCurrency(balance)}`} className="flex min-w-0 shrink items-center bg-background rounded-lg sm:rounded-xl px-1.5 sm:px-2.5 py-1.5 border border-border/50 gap-1 sm:gap-2">

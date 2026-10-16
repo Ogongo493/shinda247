@@ -46,7 +46,7 @@ export function BrandLogo({ size = "md", className, showTagline = false }: Brand
         />
         <path d="M13 13H22L18 16.5L22.5 20.5L17 25.5H12L18 20L13 15.5L13 13Z" fill="#FF6B00" />
       </svg>
-      <span className="flex flex-col leading-none">
+      <span className="brand-wordmark flex flex-col leading-none">
         <span className={cn("font-display font-bold tracking-tight", scale.word)}>
           <span className="text-foreground">SHINDA</span><span className="text-primary">24/7</span>
         </span>
