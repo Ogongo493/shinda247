@@ -179,7 +179,7 @@ Shinda 24/7 uses the [Safaricom Daraja API](https://developer.safaricom.co.ke/):
 | Callback | `POST /api/mpesa/callback` | Safaricom posts payment confirmation — credits wallet atomically |
 | Withdraw | `POST /api/mpesa/withdraw` | Initiates B2C transfer to player's phone |
 
-**Development mode:** when `MPESA_CONSUMER_KEY` is not set, all payment calls return mock success responses and are logged to the console — no real money moves.
+**Development mode:** payments fail closed when credentials are missing. To explicitly simulate M-Pesa locally, set `MPESA_MOCK_MODE=true` with `NODE_ENV` other than `production`. Mock mode is always disabled in production. Do not enable mock mode for a live deployment.
 
 ---
 

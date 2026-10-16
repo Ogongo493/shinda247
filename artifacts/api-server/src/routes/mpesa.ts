@@ -4,7 +4,7 @@ import { db } from "@workspace/db";
 import { wallets, transactions, mpesaCallbacks } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { initiateStkPush, initiateB2CPayment } from "../lib/daraja";
-import { creditWallet, debitWallet } from "@workspace/db";
+import { debitWallet } from "@workspace/db";
 import { requireAuth } from "./auth";
 import { logger } from "../lib/logger";
 
@@ -17,7 +17,59 @@ const MAX_WITHDRAWAL_KES = 150_000;
 
 // In-memory map: checkoutRequestId → userId
 // Backed by the transactions table for durability
+
 const pendingDeposits = new Map<string, number>();
+
+/**
+ * Refunds a withdrawal only while its ledger row is pending. The row lock makes
+ * duplicate provider callbacks safe: only the first callback can issue a refund.
+ */
+async function refundPendingWithdrawal(transactionId: number, reason: string): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [withdrawal] = await tx.select().from(transactions)
+      .where(and(
+        eq(transactions.id, transactionId),
+        eq(transactions.type, "withdrawal"),
+        eq(transactions.status, "pending"),
+      ))
+      .for("update");
+
+    if (!withdrawal) return false;
+
+    const [wallet] = await tx.select().from(wallets)
+      .where(eq(wallets.userId, withdrawal.userId))
+      .for("update");
+
+    if (!wallet) throw new Error(`Wallet not found for user ${withdrawal.userId}`);
+
+    const balanceAfter = wallet.balanceCents + withdrawal.amountCents;
+    await tx.update(wallets).set({
+      balanceCents: balanceAfter,
+      totalWithdrawn: sql`${wallets.totalWithdrawn} - ${withdrawal.amountCents}`,
+      updatedAt: new Date(),
+    }).where(eq(wallets.userId, withdrawal.userId));
+
+    await tx.update(transactions).set({
+      status: "failed",
+      failureReason: reason,
+      processedAt: new Date(),
+    }).where(eq(transactions.id, withdrawal.id));
+
+    await tx.insert(transactions).values({
+      userId: withdrawal.userId,
+      type: "refund",
+      status: "completed",
+      amountCents: withdrawal.amountCents,
+      balanceBefore: wallet.balanceCents,
+      balanceAfter,
+      mpesaPhone: withdrawal.mpesaPhone,
+      description: `Refund for failed withdrawal #${withdrawal.id}: ${reason}`,
+      processedAt: new Date(),
+    });
+
+    return true;
+  });
+}
 
 const DepositSchema = z.object({
   phone:     z.string().min(9).max(15),
@@ -273,34 +325,168 @@ router.post("/withdraw", requireAuth, async (req: Request, res: Response) => {
     return;
   }
 
+  // Mark the debit pending before contacting Daraja. Provider callbacks settle this
+  // exact ledger row; they must never create a second withdrawal or refund.
+  await db.update(transactions).set({
+    status: "pending",
+    checkoutRequestId: `pending-withdrawal-${debitResult.transactionId}`,
+  }).where(eq(transactions.id, debitResult.transactionId));
+
   const b2cResult = await initiateB2CPayment(phone, amountKes, `Shinda247 withdrawal`);
 
   if (!b2cResult.success) {
-    // Reverse the debit
-    await creditWallet(user.sub, amountCents, "refund", {
-      description: `Reversal: B2C failed for withdrawal of KES ${amountKes}`,
-    });
+    if (b2cResult.uncertain) {
+      logger.error({ transactionId: debitResult.transactionId }, "B2C outcome uncertain; keeping withdrawal pending instead of refunding");
+      res.status(202).json({
+        message: b2cResult.error ?? "Withdrawal submitted; confirmation is pending.",
+        newBalanceCents: debitResult.newBalanceCents,
+      });
+      return;
+    }
+
+    await refundPendingWithdrawal(debitResult.transactionId, b2cResult.error ?? "B2C request rejected");
     res.status(502).json({ error: b2cResult.error ?? "Withdrawal failed" });
     return;
   }
 
-  logger.info({ userId: user.sub, phone, amountKes, conversationId: b2cResult.conversationId }, "B2C withdrawal initiated");
+  if (!b2cResult.conversationId) {
+    logger.error({ transactionId: debitResult.transactionId }, "B2C accepted without a ConversationID; withdrawal left pending for reconciliation");
+    res.status(202).json({ message: "Withdrawal submitted; confirmation is pending.", newBalanceCents: debitResult.newBalanceCents });
+    return;
+  }
 
+  await db.update(transactions).set({
+    checkoutRequestId: b2cResult.conversationId,
+    description: `M-Pesa withdrawal KES ${amountKes} to ${phone} pending provider confirmation`,
+  }).where(and(
+    eq(transactions.id, debitResult.transactionId),
+    eq(transactions.type, "withdrawal"),
+    eq(transactions.status, "pending"),
+  ));
+
+  logger.info({ userId: user.sub, phone, amountKes, conversationId: b2cResult.conversationId, transactionId: debitResult.transactionId }, "B2C withdrawal initiated");
+
+  // Do not expose the provider correlation ID to the client; callbacks use it
+  // to settle the ledger and must remain an internal integration detail.
   res.json({
-    message: `KES ${amountKes} will be sent to ${phone} shortly.`,
-    conversationId: b2cResult.conversationId,
+    message: `KES ${amountKes} withdrawal is being processed.`,
     newBalanceCents: debitResult.newBalanceCents,
   });
 });
 
+const B2CResultSchema = z.object({
+  Result: z.object({
+    ConversationID: z.string().optional(),
+    OriginatorConversationID: z.string().optional(),
+    ResultCode: z.number(),
+    ResultDesc: z.string(),
+    TransactionID: z.string().optional(),
+  }),
+});
+
+async function settleB2CResult(payload: unknown): Promise<void> {
+  const parsed = B2CResultSchema.safeParse(payload);
+  if (!parsed.success) {
+    logger.warn({ issues: parsed.error.issues }, "Invalid M-Pesa B2C result callback shape");
+    return;
+  }
+
+  const result = parsed.data.Result;
+  const conversationId = result.ConversationID;
+  if (!conversationId) {
+    logger.error({ originatorConversationId: result.OriginatorConversationID }, "B2C result missing ConversationID; manual reconciliation required");
+    return;
+  }
+
+  const [withdrawal] = await db.select().from(transactions)
+    .where(and(
+      eq(transactions.checkoutRequestId, conversationId),
+      eq(transactions.type, "withdrawal"),
+    ))
+    .limit(1);
+
+  if (!withdrawal) {
+    logger.error({ conversationId, resultCode: result.ResultCode }, "B2C callback has no matching withdrawal; manual reconciliation required");
+    return;
+  }
+
+  if (result.ResultCode !== 0) {
+    const refunded = await refundPendingWithdrawal(withdrawal.id, result.ResultDesc || "B2C payment failed");
+    logger.warn({ conversationId, transactionId: withdrawal.id, refunded, resultCode: result.ResultCode, resultDesc: result.ResultDesc }, "B2C withdrawal failed");
+    return;
+  }
+
+  if (!result.TransactionID) {
+    logger.error({ conversationId, transactionId: withdrawal.id }, "B2C success callback missing TransactionID; withdrawal remains pending");
+    return;
+  }
+
+  const [updated] = await db.update(transactions).set({
+    status: "completed",
+    mpesaRef: result.TransactionID,
+    failureReason: null,
+    description: `M-Pesa withdrawal completed (${result.TransactionID})`,
+    processedAt: new Date(),
+  }).where(and(
+    eq(transactions.id, withdrawal.id),
+    eq(transactions.type, "withdrawal"),
+    eq(transactions.status, "pending"),
+  )).returning({ id: transactions.id });
+
+  if (updated) {
+    logger.info({ conversationId, transactionId: updated.id, mpesaTransactionId: result.TransactionID }, "B2C withdrawal confirmed");
+  } else {
+    logger.info({ conversationId, transactionId: withdrawal.id }, "Duplicate or already-settled B2C result ignored");
+  }
+}
+
 router.post("/b2c-result", async (req: Request, res: Response) => {
-  logger.info({ body: req.body }, "B2C result callback received");
+  // Acknowledge quickly; processing is idempotent and backed by the ledger.
   res.json({ ResultCode: 0, ResultDesc: "Accepted" });
+  try {
+    await settleB2CResult(req.body);
+  } catch (err) {
+    logger.error({ err }, "Error reconciling M-Pesa B2C result callback");
+  }
 });
 
 router.post("/b2c-timeout", async (req: Request, res: Response) => {
-  logger.warn({ body: req.body }, "B2C timeout callback received");
   res.json({ ResultCode: 0, ResultDesc: "Accepted" });
+  try {
+    const payload = z.object({
+      Result: z.object({
+        ConversationID: z.string().optional(),
+        OriginatorConversationID: z.string().optional(),
+        ResultDesc: z.string().optional(),
+      }),
+    }).safeParse(req.body);
+
+    if (!payload.success || !payload.data.Result.ConversationID) {
+      logger.warn({ issues: payload.success ? [] : payload.error.issues }, "Invalid M-Pesa B2C timeout callback");
+      return;
+    }
+
+    const conversationId = payload.data.Result.ConversationID;
+    const [withdrawal] = await db.select().from(transactions)
+      .where(and(
+        eq(transactions.checkoutRequestId, conversationId),
+        eq(transactions.type, "withdrawal"),
+      ))
+      .limit(1);
+
+    if (!withdrawal) {
+      logger.error({ conversationId }, "B2C timeout has no matching withdrawal; manual reconciliation required");
+      return;
+    }
+
+    const refunded = await refundPendingWithdrawal(
+      withdrawal.id,
+      payload.data.Result.ResultDesc ?? "B2C queue timeout",
+    );
+    logger.warn({ conversationId, transactionId: withdrawal.id, refunded }, "B2C withdrawal timeout processed");
+  } catch (err) {
+    logger.error({ err }, "Error reconciling M-Pesa B2C timeout callback");
+  }
 });
 
 async function resolveUserFromCheckoutRequest(checkoutRequestId: string): Promise<number | null> {

@@ -131,6 +131,8 @@ export interface B2CResult {
   success: boolean;
   conversationId?: string;
   error?: string;
+  /** True when the request may have reached Daraja but its acceptance was not confirmed. */
+  uncertain?: boolean;
 }
 
 export async function initiateB2CPayment(
@@ -183,7 +185,13 @@ export async function initiateB2CPayment(
 
     return { success: true, conversationId: String(data["ConversationID"]) };
   } catch (err) {
-    logger.error({ err }, "B2C payment error");
-    return { success: false, error: "M-Pesa service unavailable" };
+    // A network error can happen after Daraja accepted the request. Do not let the
+    // caller refund the player until the provider outcome is reconciled.
+    logger.error({ err }, "B2C payment outcome uncertain");
+    return {
+      success: false,
+      uncertain: true,
+      error: "M-Pesa response could not be confirmed. Withdrawal remains pending while support reconciles it.",
+    };
   }
 }
