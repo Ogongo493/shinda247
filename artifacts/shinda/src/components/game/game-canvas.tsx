@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
-import { Rocket } from "lucide-react";
+import { Rocket, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRtdb } from "@/contexts/rtdb-context";
 import type { GameState } from "@workspace/api-client-react";
@@ -52,6 +52,12 @@ export function GameCanvas({ gameState }: GameCanvasProps) {
             } as React.CSSProperties}
           />
         ))}
+      </div>
+
+      {/* Live online player count — sourced from the game state */}
+      <div className="absolute top-2 left-2 z-10 bg-card/80 backdrop-blur-sm border border-border/50 rounded-lg px-2 py-1 flex items-center gap-1.5">
+        <Users className="w-3 h-3 text-success" />
+        <span className="font-mono text-xs font-bold">{gameState?.onlineCount ?? 0}</span>
       </div>
 
       {/* Mountains — hidden on mobile to save space */}
