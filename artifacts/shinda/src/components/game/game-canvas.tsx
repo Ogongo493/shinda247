@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
-import { Rocket, Users } from "lucide-react";
+import { Rocket } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRtdb } from "@/contexts/rtdb-context";
 import type { GameState } from "@workspace/api-client-react";
@@ -57,19 +57,6 @@ export function GameCanvas({ gameState }: GameCanvasProps) {
       {/* Mountains — hidden on mobile to save space */}
       <div className={cn("absolute bottom-0 left-0 right-0 h-[80px] md:h-[150px] mountain-bg opacity-40 hidden sm:block", isFlying && "moving")} />
       <div className={cn("absolute bottom-0 left-0 right-0 h-[60px] md:h-[100px] mountain-bg opacity-70 hidden sm:block", isFlying && "moving")} style={{ animationDuration: "10s" }} />
-
-      {/* Top stats */}
-      <div className="absolute top-2 left-2 right-2 flex justify-between items-start z-10">
-        <div className="bg-card/80 backdrop-blur-sm border border-border/50 rounded-lg px-2 py-1 flex items-center gap-1.5">
-          <Users className="w-3 h-3 text-success" />
-          <span className="font-mono text-xs font-bold">{gameState?.onlineCount || 0}</span>
-        </div>
-        {gameState?.roundId ? (
-          <div className="bg-card/80 backdrop-blur-sm border border-border/50 rounded-lg px-2 py-1">
-            <span className="text-[10px] font-mono text-muted-foreground">#{gameState.roundId}</span>
-          </div>
-        ) : null}
-      </div>
 
       {/* Main display — centered */}
       <div className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none">
