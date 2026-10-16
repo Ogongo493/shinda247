@@ -19,6 +19,8 @@ interface GameControlsProps {
 export function GameControls({ userId, gameState, activePlayers }: GameControlsProps) {
   const [amount,       setAmount]       = useState<string>("100");
   const [autoCash,     setAutoCash]     = useState<string>("2.00");
+  const [autoBet,      setAutoBet]      = useState(false);
+  const autoBetRound = useRef<number | null>(null);
   const [currentBetId, setCurrentBetId] = useState<number | null>(null);
   const prevRoundId = useRef<number | null>(null);
   const { toast } = useToast();
@@ -42,6 +44,28 @@ export function GameControls({ userId, gameState, activePlayers }: GameControlsP
       setCurrentBetId(null);
     }
   }, [roundId, phase]);
+
+  useEffect(() => {
+    if (!autoBet || phase !== "waiting" || roundId === null || hasBet || placeBetMutation.isPending) return;
+    if (autoBetRound.current === roundId) return;
+    const val = parseFloat(amount);
+    if (!Number.isFinite(val) || val < MIN_BET || val > MAX_BET) return;
+    autoBetRound.current = roundId;
+    const cashTarget = parseFloat(autoCash);
+    placeBetMutation.mutate(
+      { data: { amount: val, autoCashOut: Number.isFinite(cashTarget) && cashTarget >= 1.01 ? cashTarget : null, playerId } },
+      {
+        onSuccess: (res) => {
+          setCurrentBetId(res.betId);
+          toast({ title: "Auto Bet Placed", description: "KES " + val + " placed for this round." });
+        },
+        onError: (err: any) => {
+          const msg = err?.data?.error ?? err?.message ?? "Automatic bet failed";
+          toast({ title: "Auto Bet Failed", description: msg, variant: "destructive" });
+        },
+      }
+    );
+  }, [autoBet, phase, roundId, hasBet, placeBetMutation.isPending, amount, autoCash, playerId]);
 
   function validateAmount(): boolean {
     const val = parseFloat(amount);
@@ -105,72 +129,53 @@ export function GameControls({ userId, gameState, activePlayers }: GameControlsP
   return (
     <div className="w-full bg-card rounded-2xl border border-border/50 p-3 sm:p-4 md:p-5 shadow-xl flex flex-col gap-3 shrink-0">
 
-      {/* ── Bet Amount + Auto Cashout ─────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row gap-3">
+      <div className="space-y-1.5">
+        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between">
+          <span className="flex items-center gap-1"><Hash className="w-3 h-3" /> Amount (KES)</span>
+          <span className="text-[10px] font-normal normal-case text-muted-foreground/60">Min {MIN_BET} · Max {MAX_BET.toLocaleString()}</span>
+        </label>
+        <Input
+          type="number"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          min={MIN_BET}
+          max={MAX_BET}
+          disabled={hasBet || phase !== "waiting"}
+          className="text-lg h-12 bg-background"
+        />
+      </div>
 
-        {/* Bet Amount */}
-        <div className="flex-1 space-y-1.5">
-          <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between">
-            <span className="flex items-center gap-1"><Hash className="w-3 h-3" /> Bet (KES)</span>
-            <span className="text-[10px] font-normal normal-case text-muted-foreground/60">Min {MIN_BET} · Max {MAX_BET.toLocaleString()}</span>
-          </label>
-          <Input
-            type="number"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            min={MIN_BET}
-            max={MAX_BET}
-            disabled={hasBet || phase !== "waiting"}
-            className="text-lg h-12 bg-background"
-          />
-          {/* Quick-pick: 2 rows of 3 on mobile, 1 row of 6 on sm+ */}
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
-            {[10, 50, 100, 500, 1000, 3000].map(val => (
-              <button
-                key={val}
-                type="button"
-                aria-pressed={amount === val.toString()}
-                aria-label={`Set bet amount to ${val} Kenyan shillings`}
-                onClick={() => setAmount(val.toString())}
-                disabled={hasBet || phase !== "waiting"}
-                className={`min-h-10 rounded-lg border px-2 py-1.5 text-xs font-mono font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 ${amount === val.toString() ? "border-primary bg-primary/10 text-primary" : "border-transparent bg-secondary text-muted-foreground hover:bg-secondary/80 hover:text-foreground"}`}
-              >
-                {val >= 1000 ? `${val / 1000}k` : val}
-              </button>
-            ))}
-          </div>
-        </div>
+      <div className="space-y-1.5">
+        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+          <Settings2 className="w-3 h-3" /> Auto Cashout (×)
+        </label>
+        <Input
+          type="number"
+          step="0.01"
+          min="1.01"
+          value={autoCash}
+          onChange={(e) => setAutoCash(e.target.value)}
+          disabled={hasBet || phase !== "waiting"}
+          className="text-lg h-12 bg-background"
+        />
+      </div>
 
-        {/* Auto Cash Out */}
-        <div className="flex-1 sm:max-w-[160px] space-y-1.5">
-          <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
-            <Settings2 className="w-3 h-3" /> Auto (×)
-          </label>
-          <Input
-            type="number"
-            step="0.01"
-            min="1.01"
-            value={autoCash}
-            onChange={(e) => setAutoCash(e.target.value)}
-            disabled={hasBet || phase !== "waiting"}
-            className="text-lg h-12 bg-background"
-          />
-          <div className="grid grid-cols-4 gap-1.5">
-            {[1.5, 2, 5, 10].map(val => (
-              <button
-                key={val}
-                type="button"
-                aria-pressed={autoCash === val.toFixed(2)}
-                aria-label={`Set automatic cash out to ${val} times`}
-                onClick={() => setAutoCash(val.toFixed(2))}
-                disabled={hasBet || phase !== "waiting"}
-                className={`min-h-10 rounded-lg border px-2 py-1.5 text-xs font-mono font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 ${autoCash === val.toFixed(2) ? "border-primary bg-primary/10 text-primary" : "border-transparent bg-secondary text-muted-foreground hover:bg-secondary/80 hover:text-foreground"}`}
-              >
-                {val}×
-              </button>
-            ))}
-          </div>
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-border/50 bg-background/50 px-3 py-3">
+        <div className="min-w-0">
+          <label htmlFor="auto-bet-toggle" className="text-sm font-semibold cursor-pointer">Auto Bet</label>
+          <p className="text-xs text-muted-foreground">Automatically bet each round until switched off</p>
         </div>
+        <button
+          id="auto-bet-toggle"
+          type="button"
+          role="switch"
+          aria-checked={autoBet}
+          aria-label="Auto Bet"
+          onClick={() => setAutoBet((enabled) => !enabled)}
+          className={"relative h-7 w-12 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 " + (autoBet ? "bg-primary" : "bg-secondary")}
+        >
+          <span className={"absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-transform " + (autoBet ? "translate-x-6" : "translate-x-1")} />
+        </button>
       </div>
 
       {/* ── Action Button ─────────────────────────────────────────────── */}
