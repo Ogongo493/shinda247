@@ -12,7 +12,7 @@ import {
   setBroadcast,
   elapsedToMultiplier,
 } from "@workspace/db";
-import { attachBotSimulator, getActiveBotPlayers } from "./botSimulator";
+import { getConnectedClientCount } from "./socket";
 
 export type GamePhase = "waiting" | "flying" | "crashed";
 
@@ -40,15 +40,8 @@ const BETTING_WINDOW_MS = 5000;
 let roundStartTime   = Date.now();
 let totalCountdownMs = BETTING_WINDOW_MS + 2000; // refreshed on every 1501
 let flyingStartedAt: number | null = null;
-let onlineCount      = Math.floor(Math.random() * 500) + 800;
 
 let emitFn: ((event: string, data: unknown) => void) | null = null;
-
-/**
- * Engine-event fan-out - allows botSimulator (and any future module) to
- * observe raw DB-engine events without coupling directly to setBroadcast.
- */
-const engineEventListeners: Array<(event: string, data: unknown) => void> = [];
 
 function buildWaitingPayload(): GameState {
   const elapsed = Date.now() - roundStartTime;
@@ -60,8 +53,8 @@ function buildWaitingPayload(): GameState {
     crashedAt: null,
     roundId: game?.id ?? 0,
     countdownMs: remaining,
-    onlineCount,
-    playingCount: getActiveBets().length + getActiveBotPlayers().size,
+    onlineCount: getConnectedClientCount(),
+    playingCount: getActiveBets().length,
     startTime: null,
     flyingStartedAt: null,
   };
@@ -76,8 +69,8 @@ function buildFlyingPayload(elapsedMs: number): GameState {
     crashedAt: null,
     roundId: game?.id ?? 0,
     countdownMs: null,
-    onlineCount,
-    playingCount: getActiveBets().length + getActiveBotPlayers().size,
+    onlineCount: getConnectedClientCount(),
+    playingCount: getActiveBets().length,
     startTime: flyingStartedAt,
     flyingStartedAt,
   };
@@ -92,7 +85,7 @@ function buildCrashedPayload(crashPoint: number): GameState {
     crashedAt: crashMult,
     roundId: game?.id ?? 0,
     countdownMs: null,
-    onlineCount,
+    onlineCount: getConnectedClientCount(),
     playingCount: 0,
     startTime: null,
     flyingStartedAt: null,
@@ -102,21 +95,11 @@ function buildCrashedPayload(crashPoint: number): GameState {
 export function initEngine(broadcastFn: (event: string, data: unknown) => void): void {
   emitFn = broadcastFn;
 
-  // Wire up bot simulator - it observes the same event stream via the fan-out.
-  attachBotSimulator(broadcastFn, (handler) => {
-    engineEventListeners.push(handler);
-  });
-
   setBroadcast((event, data) => {
     // emitFn is always set before setBroadcast fires (assigned two lines above),
     // but the module-level type includes null for pre-init safety. Capture a
     // local non-null reference so every call site below is type-safe.
     const emit = emitFn!;
-
-    // Fan out to all secondary listeners (bot simulator, etc.) first.
-    for (const listener of engineEventListeners) {
-      try { listener(event, data); } catch { /* never let a listener kill the game loop */ }
-    }
 
     if (event === "1501") {
       // New round created. Snapshot timing so the REST /game/state endpoint
@@ -125,7 +108,6 @@ export function initEngine(broadcastFn: (event: string, data: unknown) => void):
       roundStartTime   = Date.now();
       totalCountdownMs = wait_ms + BETTING_WINDOW_MS;
       flyingStartedAt  = null;
-      onlineCount      = Math.floor(Math.random() * 500) + 800;
 
       // Poll every 500 ms so the frontend countdown stays current.
       if (countdownInterval) clearInterval(countdownInterval);
@@ -211,7 +193,7 @@ export function getState(): GameState {
       crashedAt: null,
       roundId: 0,
       countdownMs: totalCountdownMs,
-      onlineCount,
+      onlineCount: getConnectedClientCount(),
       playingCount: 0,
       startTime: null,
       flyingStartedAt: null,
@@ -258,19 +240,7 @@ export function getActivePlayers() {
     };
   });
 
-  // Merge in UI-only bots from the bot simulator
-  const bots = Array.from(getActiveBotPlayers().values()).map(bot => ({
-    id:         bot.id,
-    betId:      undefined,
-    username:   bot.username,
-    amount:     bot.amount,
-    multiplier: null,
-    profit:     null,
-    cashedOut:  bot.cashedOut,
-    hash:       bot.id.slice(-16),
-  }));
-
-  return [...realPlayers, ...bots];
+  return realPlayers;
 }
 
 export async function placeBet(
@@ -380,24 +350,12 @@ export async function getLeaderboardFromDB(): Promise<Array<{ username: string; 
         amount:     Number(r.amountCents) / 100,
       }));
 
-    return results.length > 0 ? results : getFakeLeaderboard();
+    return results;
   } catch {
-    return getFakeLeaderboard();
+    return [];
   }
 }
 
-function getFakeLeaderboard() {
-  const names = [
-    "Peterode", "lagatsa", "Brandd", "Serrias", "yegoro",
-    "Johndo", "Ourmae", "kevinge", "mutuah", "njoro.a", "njugun", "angira",
-  ];
-  return names.map(n => ({
-    username: n,
-    multiplier: Math.round((Math.random() * 10 + 1.5) * 10) / 10,
-    amount: [550, 700, 800, 1200, 1370, 1600, 3000, 4000, 4250][Math.floor(Math.random() * 9)],
-  }));
-}
-
 export function getLeaderboard() {
-  return getFakeLeaderboard();
+  return [];
 }
