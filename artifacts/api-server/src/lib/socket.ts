@@ -21,6 +21,10 @@ export function initSocketIO(httpServer: HttpServer): SocketIOServer {
   return io;
 }
 
+export function getConnectedClientCount(): number {
+  return io?.engine.clientsCount ?? 0;
+}
+
 export function broadcastToClients(event: string, data: unknown): void {
   io?.emit(event, data);
 }
