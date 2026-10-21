@@ -375,13 +375,11 @@ router.post("/b2c-result", async (req: Request, res: Response) => {
     res.status(403).json({ ResultCode: 1, ResultDesc: "Unauthorized" });
     return;
   }
-  // Acknowledge promptly; only pending rows can be reconciled, making retries idempotent.
-  res.json({ ResultCode: 0, ResultDesc: "Accepted" });
-
   try {
     const parsed = B2CResultSchema.safeParse(req.body);
     if (!parsed.success) {
       logger.warn("Rejected malformed authorized B2C result callback");
+      res.status(400).json({ ResultCode: 1, ResultDesc: "Invalid payload" });
       return;
     }
     const result = parsed.data.Result;
@@ -390,10 +388,10 @@ router.post("/b2c-result", async (req: Request, res: Response) => {
         .where(and(
           eq(transactions.checkoutRequestId, result.ConversationID),
           eq(transactions.type, "withdrawal"),
-          eq(transactions.status, "pending"),
         ))
         .for("update");
       if (!withdrawal) return "unmatched" as const;
+      if (withdrawal.status !== "pending") return "already-processed" as const;
 
       if (result.ResultCode !== 0) {
         const [wallet] = await tx.select().from(wallets)
@@ -445,12 +443,15 @@ router.post("/b2c-result", async (req: Request, res: Response) => {
       return "completed" as const;
     });
     if (outcome === "unmatched") {
-      logger.error({ conversationId: parsed.data.Result.ConversationID }, "No pending withdrawal matched B2C result callback");
-    } else {
-      logger.info({ conversationId: parsed.data.Result.ConversationID, outcome }, "B2C withdrawal callback reconciled");
+      logger.error({ conversationId: parsed.data.Result.ConversationID }, "No withdrawal matched B2C result callback; asking provider to retry");
+      res.status(503).json({ ResultCode: 1, ResultDesc: "Withdrawal not ready for reconciliation" });
+      return;
     }
+    logger.info({ conversationId: parsed.data.Result.ConversationID, outcome }, "B2C withdrawal callback reconciled");
+    res.json({ ResultCode: 0, ResultDesc: "Accepted" });
   } catch (err) {
     logger.error({ err }, "Error reconciling B2C result callback");
+    if (!res.headersSent) res.status(500).json({ ResultCode: 1, ResultDesc: "Processing failed" });
   }
 });
 
