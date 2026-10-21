@@ -111,13 +111,11 @@ router.post("/callback", async (req: Request, res: Response) => {
     return;
   }
 
-  // Safaricom expects a prompt acknowledgement; processing continues server-side.
-  res.json({ ResultCode: 0, ResultDesc: "Accepted" });
-
   try {
     const body = CallbackSchema.safeParse(req.body);
     if (!body.success) {
-      logger.warn({ body: req.body }, "Invalid M-Pesa callback shape");
+      logger.warn("Invalid M-Pesa callback shape");
+      res.status(400).json({ ResultCode: 1, ResultDesc: "Invalid payload" });
       return;
     }
 
@@ -164,11 +162,13 @@ router.post("/callback", async (req: Request, res: Response) => {
 
       pendingDeposits.delete(CheckoutRequestID);
       logger.info({ CheckoutRequestID, ResultCode, ResultDesc }, "M-Pesa payment failed/cancelled");
+      res.json({ ResultCode: 0, ResultDesc: "Accepted" });
       return;
     }
 
     if (!Number.isSafeInteger(amountKes) || amountKes <= 0 || !mpesaRef) {
       logger.error({ CheckoutRequestID, amountKes, mpesaRef }, "M-Pesa success callback missing a valid amount or receipt; not crediting wallet");
+      res.status(400).json({ ResultCode: 1, ResultDesc: "Invalid payment result" });
       return;
     }
 
@@ -256,10 +256,16 @@ router.post("/callback", async (req: Request, res: Response) => {
       pendingDeposits.delete(CheckoutRequestID);
     }
     if (outcome === "credited") {
-      logger.info({ CheckoutRequestID, amountKes, mpesaRef }, "Wallet credited from verified M-Pesa deposit");
+      logger.info({ CheckoutRequestID, amountKes, mpesaRef }, "Wallet credited from token-authorized M-Pesa deposit callback");
     }
+    if (outcome === "unmatched") {
+      res.status(503).json({ ResultCode: 1, ResultDesc: "Deposit not ready for reconciliation" });
+      return;
+    }
+    res.json({ ResultCode: 0, ResultDesc: "Accepted" });
   } catch (err) {
     logger.error({ err }, "Error processing M-Pesa callback");
+    if (!res.headersSent) res.status(500).json({ ResultCode: 1, ResultDesc: "Processing failed" });
   }
 });
 
