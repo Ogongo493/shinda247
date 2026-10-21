@@ -33,7 +33,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "blob:"],
       connectSrc: ["'self'", "wss:", "ws:"],
@@ -45,6 +45,11 @@ app.use(helmet({
   },
   crossOriginEmbedderPolicy: false,
 }));
+
+app.use((_req, res, next) => {
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  next();
+});
 
 app.use(
   pinoHttp({
@@ -74,10 +79,33 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api", router);
 
 if (STATIC_DIR) {
-  app.use(express.static(STATIC_DIR));
-  app.get(/.*/, (_req, res) => {
-    res.sendFile(path.join(STATIC_DIR, "index.html"));
+  app.use(express.static(STATIC_DIR, { fallthrough: true }));
+
+  app.get("/robots.txt", (_req, res) => {
+    res.type("text/plain").send(
+      "User-agent: *\\nDisallow: /api/\\nDisallow: /admin\\nDisallow: /history\\nDisallow: /players\\nDisallow: /notifications\\n"
+    );
   });
+
+  app.get("/favicon.ico", (_req, res) => res.redirect(308, "/favicon.svg"));
+
+  const sendAppShell = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (!req.accepts("html")) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    res.sendFile(path.join(STATIC_DIR!, "index.html"), (err) => {
+      if (err) next(err);
+    });
+  };
+
+  // Only known browser routes receive the SPA shell. Unknown routes and files 404.
+  app.get("/", sendAppShell);
+  app.get(/^\\/(?:login|register|admin|history|players|notifications|faq)\\/?$/, sendAppShell);
 }
+
+app.use((_req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
 
 export default app;
