@@ -114,26 +114,35 @@ router.post("/game/cashout", requireAuth, async (req: Request, res) => {
   }
 });
 
-router.get("/players", (_req, res) => {
+router.get("/players", (req, res) => {
+  const authToken = extractToken(req.headers.authorization);
+  const viewer = authToken ? verifyJwt(authToken) : null;
   const players = engine.getActivePlayers();
   const data = GetActivePlayersResponse.parse(
-    players.map(p => ({
-      id:        p.id,
-      betId:     p.betId,
-      username:  p.username,
-      amount:    p.amount,
-      multiplier: p.multiplier ?? null,
-      profit:    p.profit ?? null,
-      cashedOut: p.cashedOut,
-      hash:      p.hash,
-    }))
+    players.map((p, index) => {
+      // Spectators see anonymized labels; only a signed-in player sees their own ID/bet ID.
+      const isViewer = viewer !== null && p.id === String(viewer.sub);
+      return {
+        id: isViewer ? p.id : "public-player-" + (index + 1),
+        ...(isViewer && p.betId !== undefined ? { betId: p.betId } : {}),
+        username: isViewer ? p.username : "Player " + (index + 1),
+        amount: p.amount,
+        multiplier: p.multiplier ?? null,
+        profit: p.profit ?? null,
+        cashedOut: p.cashedOut,
+        hash: "redacted",
+      };
+    })
   );
   res.json(data);
 });
 
 router.get("/players/leaderboard", async (_req, res) => {
   const leaderboard = await engine.getLeaderboardFromDB();
-  const data = GetLeaderboardResponse.parse(leaderboard);
+  // Keep public rankings useful without publishing customer usernames.
+  const data = GetLeaderboardResponse.parse(
+    leaderboard.map((player, index) => ({ ...player, username: "Player " + (index + 1) }))
+  );
   res.json(data);
 });
 
