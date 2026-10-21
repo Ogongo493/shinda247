@@ -122,7 +122,7 @@ export async function debitWallet(
       description: opts.description,
       mpesaRef:    opts.mpesaRef,
       mpesaPhone:  opts.mpesaPhone,
-      processedAt: new Date(),
+      processedAt: transactionStatus === 'completed' ? new Date() : undefined,
     }).returning({ id: transactions.id });
 
     return { success: true, newBalanceCents: balanceAfter, transactionId: txn.id };
