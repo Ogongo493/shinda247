@@ -79,6 +79,7 @@ export async function debitWallet(
     description?: string;
     mpesaRef?: string;
     mpesaPhone?: string;
+    status?: 'pending' | 'completed';
   } = {}
 ): Promise<DebitResult> {
   if (amountCents <= 0) {
@@ -106,21 +107,22 @@ export async function debitWallet(
 
     const balanceAfter = balanceBefore - amountCents;
 
+    const transactionStatus = opts.status ?? 'completed';
     await tx.update(wallets).set({
       balanceCents:   balanceAfter,
-      totalWithdrawn: type === 'withdrawal' ? sql`${wallets.totalWithdrawn} + ${amountCents}` : wallets.totalWithdrawn,
+      totalWithdrawn: type === 'withdrawal' && transactionStatus === 'completed' ? sql`${wallets.totalWithdrawn} + ${amountCents}` : wallets.totalWithdrawn,
       updatedAt:      new Date(),
     }).where(eq(wallets.userId, userId));
 
     const [txn] = await tx.insert(transactions).values({
-      userId, type, status: 'completed',
+      userId, type, status: transactionStatus,
       amountCents, balanceBefore, balanceAfter,
       gameId:      opts.gameId,
       betId:       opts.betId,
       description: opts.description,
       mpesaRef:    opts.mpesaRef,
       mpesaPhone:  opts.mpesaPhone,
-      processedAt: new Date(),
+      processedAt: transactionStatus === 'completed' ? new Date() : undefined,
     }).returning({ id: transactions.id });
 
     return { success: true, newBalanceCents: balanceAfter, transactionId: txn.id };

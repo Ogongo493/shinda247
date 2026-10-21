@@ -1,10 +1,11 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { db } from "@workspace/db";
 import { wallets, transactions, mpesaCallbacks } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
-import { initiateStkPush, initiateB2CPayment } from "../lib/daraja";
-import { creditWallet, debitWallet } from "@workspace/db";
+import { initiateStkPush, initiateB2CPayment, verifyStkPushStatus } from "../lib/daraja";
+import { debitWallet } from "@workspace/db";
 import { requireAuth } from "./auth";
 import { logger } from "../lib/logger";
 
@@ -14,6 +15,16 @@ const MIN_DEPOSIT_KES    = 10;
 const MAX_DEPOSIT_KES    = 150_000;
 const MIN_WITHDRAWAL_KES = 50;
 const MAX_WITHDRAWAL_KES = 150_000;
+const MPESA_CALLBACK_TOKEN = process.env.MPESA_CALLBACK_TOKEN ?? "";
+
+/** Daraja callbacks do not provide a verifiable signature; require a high-entropy shared URL token. */
+function isAuthorizedDarajaCallback(req: Request): boolean {
+  const supplied = req.query.token;
+  if (MPESA_CALLBACK_TOKEN.length < 32 || typeof supplied !== "string") return false;
+  const expectedBytes = Buffer.from(MPESA_CALLBACK_TOKEN, "utf8");
+  const suppliedBytes = Buffer.from(supplied, "utf8");
+  return expectedBytes.length === suppliedBytes.length && timingSafeEqual(expectedBytes, suppliedBytes);
+}
 
 // In-memory map: checkoutRequestId → userId
 // Backed by the transactions table for durability
@@ -94,18 +105,33 @@ const CallbackSchema = z.object({
 });
 
 router.post("/callback", async (req: Request, res: Response) => {
-  // Safaricom expects a prompt acknowledgement; processing continues server-side.
-  res.json({ ResultCode: 0, ResultDesc: "Accepted" });
+  if (!isAuthorizedDarajaCallback(req)) {
+    logger.warn("Rejected M-Pesa STK callback: missing or invalid callback token");
+    res.status(403).json({ ResultCode: 1, ResultDesc: "Unauthorized" });
+    return;
+  }
 
   try {
     const body = CallbackSchema.safeParse(req.body);
     if (!body.success) {
-      logger.warn({ body: req.body }, "Invalid M-Pesa callback shape");
+      logger.warn("Invalid M-Pesa callback shape");
+      res.status(400).json({ ResultCode: 1, ResultDesc: "Invalid payload" });
       return;
     }
 
     const cb = body.data.Body.stkCallback;
     const { MerchantRequestID, CheckoutRequestID, ResultCode, ResultDesc, CallbackMetadata } = cb;
+    const providerStatus = await verifyStkPushStatus(CheckoutRequestID);
+    if (
+      !providerStatus.verified ||
+      providerStatus.checkoutRequestId !== CheckoutRequestID ||
+      providerStatus.merchantRequestId !== MerchantRequestID ||
+      providerStatus.resultCode !== String(ResultCode)
+    ) {
+      logger.warn({ CheckoutRequestID, providerResultCode: providerStatus.resultCode }, "Safaricom status query did not match callback; wallet unchanged");
+      res.status(503).json({ ResultCode: 1, ResultDesc: "Payment status not independently verified" });
+      return;
+    }
     const getItem = (name: string) => CallbackMetadata?.Item.find(i => i.Name === name)?.Value;
 
     const amountKes = Number(getItem("Amount") ?? 0);
@@ -147,11 +173,13 @@ router.post("/callback", async (req: Request, res: Response) => {
 
       pendingDeposits.delete(CheckoutRequestID);
       logger.info({ CheckoutRequestID, ResultCode, ResultDesc }, "M-Pesa payment failed/cancelled");
+      res.json({ ResultCode: 0, ResultDesc: "Accepted" });
       return;
     }
 
     if (!Number.isSafeInteger(amountKes) || amountKes <= 0 || !mpesaRef) {
       logger.error({ CheckoutRequestID, amountKes, mpesaRef }, "M-Pesa success callback missing a valid amount or receipt; not crediting wallet");
+      res.status(400).json({ ResultCode: 1, ResultDesc: "Invalid payment result" });
       return;
     }
 
@@ -239,10 +267,16 @@ router.post("/callback", async (req: Request, res: Response) => {
       pendingDeposits.delete(CheckoutRequestID);
     }
     if (outcome === "credited") {
-      logger.info({ CheckoutRequestID, amountKes, mpesaRef }, "Wallet credited from verified M-Pesa deposit");
+      logger.info({ CheckoutRequestID, amountKes, mpesaRef }, "Wallet credited from token-authorized M-Pesa deposit callback");
     }
+    if (outcome === "unmatched") {
+      res.status(503).json({ ResultCode: 1, ResultDesc: "Deposit not ready for reconciliation" });
+      return;
+    }
+    res.json({ ResultCode: 0, ResultDesc: "Accepted" });
   } catch (err) {
     logger.error({ err }, "Error processing M-Pesa callback");
+    if (!res.headersSent) res.status(500).json({ ResultCode: 1, ResultDesc: "Processing failed" });
   }
 });
 
@@ -265,7 +299,8 @@ router.post("/withdraw", requireAuth, async (req: Request, res: Response) => {
 
   const debitResult = await debitWallet(user.sub, amountCents, "withdrawal", {
     mpesaPhone:  phone,
-    description: `Withdrawal KES ${amountKes} to ${phone}`,
+    status: "pending",
+    description: `Withdrawal KES ${amountKes} to ${phone} (pending provider confirmation)`,
   });
 
   if (!debitResult.success) {
@@ -275,14 +310,17 @@ router.post("/withdraw", requireAuth, async (req: Request, res: Response) => {
 
   const b2cResult = await initiateB2CPayment(phone, amountKes, `Shinda247 withdrawal`);
 
-  if (!b2cResult.success) {
-    // Reverse the debit
-    await creditWallet(user.sub, amountCents, "refund", {
-      description: `Reversal: B2C failed for withdrawal of KES ${amountKes}`,
-    });
+  if (!b2cResult.success || !b2cResult.conversationId) {
+    await refundPendingWithdrawal(debitResult.transactionId, b2cResult.error ?? "B2C request returned no conversation ID");
     res.status(502).json({ error: b2cResult.error ?? "Withdrawal failed" });
     return;
   }
+
+  // Persist the provider correlation ID on the pending ledger row.
+  await db.update(transactions).set({
+    checkoutRequestId: b2cResult.conversationId,
+    description: `Withdrawal KES ${amountKes} to ${phone} (awaiting Safaricom result)`,
+  }).where(and(eq(transactions.id, debitResult.transactionId), eq(transactions.status, "pending")));
 
   logger.info({ userId: user.sub, phone, amountKes, conversationId: b2cResult.conversationId }, "B2C withdrawal initiated");
 
@@ -293,13 +331,155 @@ router.post("/withdraw", requireAuth, async (req: Request, res: Response) => {
   });
 });
 
+const B2CResultSchema = z.object({
+  Result: z.object({
+    ConversationID: z.string().min(1),
+    ResultCode: z.number().int(),
+    ResultDesc: z.string().optional(),
+    ResultParameters: z.object({
+      ResultParameter: z.array(z.object({
+        Key: z.string(),
+        Value: z.union([z.string(), z.number()]).optional(),
+      })),
+    }).optional(),
+  }),
+});
+
+async function refundPendingWithdrawal(transactionId: number, reason: string): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [withdrawal] = await tx.select().from(transactions)
+      .where(and(
+        eq(transactions.id, transactionId),
+        eq(transactions.type, "withdrawal"),
+        eq(transactions.status, "pending"),
+      ))
+      .for("update");
+    if (!withdrawal) return false;
+
+    const [wallet] = await tx.select().from(wallets)
+      .where(eq(wallets.userId, withdrawal.userId))
+      .for("update");
+    if (!wallet) throw new Error(`Wallet not found for withdrawal ${withdrawal.id}`);
+
+    const balanceBefore = wallet.balanceCents;
+    const balanceAfter = balanceBefore + withdrawal.amountCents;
+    await tx.update(wallets).set({ balanceCents: balanceAfter, updatedAt: new Date() })
+      .where(eq(wallets.userId, withdrawal.userId));
+    await tx.update(transactions).set({
+      status: "failed",
+      failureReason: reason,
+      processedAt: new Date(),
+      description: `Failed withdrawal refunded: ${reason}`,
+    }).where(eq(transactions.id, withdrawal.id));
+    await tx.insert(transactions).values({
+      userId: withdrawal.userId,
+      type: "refund",
+      status: "completed",
+      amountCents: withdrawal.amountCents,
+      balanceBefore,
+      balanceAfter,
+      mpesaPhone: withdrawal.mpesaPhone,
+      description: `Refund for failed withdrawal #${withdrawal.id}`,
+      processedAt: new Date(),
+    });
+    return true;
+  });
+}
+
 router.post("/b2c-result", async (req: Request, res: Response) => {
-  logger.info({ body: req.body }, "B2C result callback received");
-  res.json({ ResultCode: 0, ResultDesc: "Accepted" });
+  if (!isAuthorizedDarajaCallback(req)) {
+    logger.warn("Rejected M-Pesa B2C result callback: missing or invalid callback token");
+    res.status(403).json({ ResultCode: 1, ResultDesc: "Unauthorized" });
+    return;
+  }
+  try {
+    const parsed = B2CResultSchema.safeParse(req.body);
+    if (!parsed.success) {
+      logger.warn("Rejected malformed authorized B2C result callback");
+      res.status(400).json({ ResultCode: 1, ResultDesc: "Invalid payload" });
+      return;
+    }
+    const result = parsed.data.Result;
+    const outcome = await db.transaction(async (tx) => {
+      const [withdrawal] = await tx.select().from(transactions)
+        .where(and(
+          eq(transactions.checkoutRequestId, result.ConversationID),
+          eq(transactions.type, "withdrawal"),
+        ))
+        .for("update");
+      if (!withdrawal) return "unmatched" as const;
+      if (withdrawal.status !== "pending") return "already-processed" as const;
+
+      if (result.ResultCode !== 0) {
+        const [wallet] = await tx.select().from(wallets)
+          .where(eq(wallets.userId, withdrawal.userId))
+          .for("update");
+        if (!wallet) throw new Error(`Wallet not found for withdrawal ${withdrawal.id}`);
+        const balanceBefore = wallet.balanceCents;
+        const balanceAfter = balanceBefore + withdrawal.amountCents;
+        await tx.update(wallets).set({ balanceCents: balanceAfter, updatedAt: new Date() })
+          .where(eq(wallets.userId, withdrawal.userId));
+        await tx.update(transactions).set({
+          status: "failed",
+          failureReason: result.ResultDesc ?? `Safaricom B2C result code ${result.ResultCode}`,
+          processedAt: new Date(),
+        }).where(eq(transactions.id, withdrawal.id));
+        await tx.insert(transactions).values({
+          userId: withdrawal.userId,
+          type: "refund",
+          status: "completed",
+          amountCents: withdrawal.amountCents,
+          balanceBefore,
+          balanceAfter,
+          mpesaPhone: withdrawal.mpesaPhone,
+          description: `Refund for failed withdrawal #${withdrawal.id}`,
+          processedAt: new Date(),
+        });
+        return "refunded" as const;
+      }
+
+      const parameters = result.ResultParameters?.ResultParameter ?? [];
+      const value = (key: string) => parameters.find((item) => item.Key === key)?.Value;
+      const paidAmount = Number(value("TransactionAmount"));
+      const receipt = String(value("TransactionReceipt") ?? "");
+      if (!Number.isSafeInteger(paidAmount) || paidAmount * 100 !== withdrawal.amountCents || !receipt) {
+        logger.error({ conversationId: result.ConversationID, withdrawalId: withdrawal.id }, "B2C success callback missing matching amount/receipt; withdrawal left pending for reconciliation");
+        return "unverified-success" as const;
+      }
+
+      await tx.update(wallets).set({
+        totalWithdrawn: sql`${wallets.totalWithdrawn} + ${withdrawal.amountCents}`,
+        updatedAt: new Date(),
+      }).where(eq(wallets.userId, withdrawal.userId));
+      await tx.update(transactions).set({
+        status: "completed",
+        mpesaRef: receipt,
+        processedAt: new Date(),
+        description: `Withdrawal completed via M-Pesa receipt ${receipt}`,
+      }).where(eq(transactions.id, withdrawal.id));
+      return "completed" as const;
+    });
+    if (outcome === "unmatched") {
+      logger.error({ conversationId: parsed.data.Result.ConversationID }, "No withdrawal matched B2C result callback; asking provider to retry");
+      res.status(503).json({ ResultCode: 1, ResultDesc: "Withdrawal not ready for reconciliation" });
+      return;
+    }
+    logger.info({ conversationId: parsed.data.Result.ConversationID, outcome }, "B2C withdrawal callback reconciled");
+    res.json({ ResultCode: 0, ResultDesc: "Accepted" });
+  } catch (err) {
+    logger.error({ err }, "Error reconciling B2C result callback");
+    if (!res.headersSent) res.status(500).json({ ResultCode: 1, ResultDesc: "Processing failed" });
+  }
 });
 
 router.post("/b2c-timeout", async (req: Request, res: Response) => {
-  logger.warn({ body: req.body }, "B2C timeout callback received");
+  if (!isAuthorizedDarajaCallback(req)) {
+    logger.warn("Rejected M-Pesa B2C timeout callback: missing or invalid callback token");
+    res.status(403).json({ ResultCode: 1, ResultDesc: "Unauthorized" });
+    return;
+  }
+  // Timeout is ambiguous: do not refund until Safaricom confirms the final outcome.
+  logger.warn({ conversationId: req.body?.Result?.ConversationID }, "B2C timeout received; withdrawal remains pending for provider reconciliation");
   res.json({ ResultCode: 0, ResultDesc: "Accepted" });
 });
 

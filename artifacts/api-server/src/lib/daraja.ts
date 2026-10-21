@@ -8,6 +8,7 @@ const B2C_SHORTCODE   = process.env.MPESA_B2C_SHORTCODE ?? SHORTCODE;
 const B2C_INITIATOR   = process.env.MPESA_B2C_INITIATOR_NAME ?? "";
 const B2C_SECURITY_CREDENTIAL = process.env.MPESA_B2C_SECURITY_CREDENTIAL ?? "";
 const CALLBACK_BASE   = process.env.MPESA_CALLBACK_BASE_URL ?? "";
+const CALLBACK_TOKEN  = process.env.MPESA_CALLBACK_TOKEN ?? "";
 const ENVIRONMENT     = process.env.MPESA_ENVIRONMENT ?? "sandbox";
 const MOCK_MODE       = process.env.MPESA_MOCK_MODE === "true" && process.env.NODE_ENV !== "production";
 
@@ -67,7 +68,7 @@ export async function initiateStkPush(
   accountRef: string,
   description: string
 ): Promise<StkPushResult> {
-  if (!CONSUMER_KEY || !CONSUMER_SECRET || !PASSKEY || !CALLBACK_BASE) {
+  if (!CONSUMER_KEY || !CONSUMER_SECRET || !PASSKEY || !CALLBACK_BASE || CALLBACK_TOKEN.length < 32) {
     if (MOCK_MODE) {
       logger.warn("M-Pesa credentials/callback URL missing — explicit non-production mock mode enabled");
       return {
@@ -84,7 +85,7 @@ export async function initiateStkPush(
     const token = await getAccessToken();
     const timestamp = getTimestamp();
     const password = getPassword(timestamp);
-    const callbackUrl = `${CALLBACK_BASE.replace(/\/$/, "")}/api/mpesa/callback`;
+    const callbackUrl = `${CALLBACK_BASE.replace(/\/$/, "")}/api/mpesa/callback?token=${encodeURIComponent(CALLBACK_TOKEN)}`;
 
     const body = {
       BusinessShortCode: SHORTCODE,
@@ -127,6 +128,63 @@ export async function initiateStkPush(
   }
 }
 
+export interface StkPushVerification {
+  verified: boolean;
+  checkoutRequestId?: string;
+  merchantRequestId?: string;
+  resultCode?: string;
+  resultDesc?: string;
+}
+
+/**
+ * Query Safaricom's authoritative STK status before any callback can change a wallet.
+ * Callback tokens are an additional guard, not a substitute for provider verification.
+ */
+export async function verifyStkPushStatus(checkoutRequestId: string): Promise<StkPushVerification> {
+  if (!CONSUMER_KEY || !CONSUMER_SECRET || !PASSKEY || !checkoutRequestId) {
+    return { verified: false, resultDesc: "STK query is not configured" };
+  }
+
+  try {
+    const token = await getAccessToken();
+    const timestamp = getTimestamp();
+    const body = {
+      BusinessShortCode: SHORTCODE,
+      Password: getPassword(timestamp),
+      Timestamp: timestamp,
+      CheckoutRequestID: checkoutRequestId,
+    };
+    const response = await fetch(`${BASE_URL}/mpesa/stkpushquery/v1/query`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json() as Record<string, unknown>;
+    if (!response.ok || String(data["ResponseCode"] ?? "") !== "0") {
+      logger.warn({ status: response.status, responseCode: data["ResponseCode"] }, "Safaricom STK status query did not confirm request");
+      return { verified: false, resultDesc: String(data["ResponseDescription"] ?? "STK status query failed") };
+    }
+
+    const returnedCheckoutId = String(data["CheckoutRequestID"] ?? "");
+    const merchantRequestId = String(data["MerchantRequestID"] ?? "");
+    const resultCode = data["ResultCode"] === undefined ? undefined : String(data["ResultCode"]);
+    const resultDesc = data["ResultDesc"] === undefined ? undefined : String(data["ResultDesc"]);
+    return {
+      verified: returnedCheckoutId === checkoutRequestId && merchantRequestId.length > 0 && resultCode !== undefined,
+      checkoutRequestId: returnedCheckoutId,
+      merchantRequestId,
+      resultCode,
+      resultDesc,
+    };
+  } catch (err) {
+    logger.warn({ err }, "Safaricom STK status query failed");
+    return { verified: false, resultDesc: "Safaricom status query unavailable" };
+  }
+}
+
 export interface B2CResult {
   success: boolean;
   conversationId?: string;
@@ -150,8 +208,9 @@ export async function initiateB2CPayment(
   try {
     const token = await getAccessToken();
     const callbackBase = CALLBACK_BASE.replace(/\/$/, "");
-    const resultUrl = `${callbackBase}/api/mpesa/b2c-result`;
-    const timeoutUrl = `${callbackBase}/api/mpesa/b2c-timeout`;
+    const tokenQuery = `?token=${encodeURIComponent(CALLBACK_TOKEN)}`;
+    const resultUrl = `${callbackBase}/api/mpesa/b2c-result${tokenQuery}`;
+    const timeoutUrl = `${callbackBase}/api/mpesa/b2c-timeout${tokenQuery}`;
 
     const body = {
       InitiatorName: B2C_INITIATOR,
