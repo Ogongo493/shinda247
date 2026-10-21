@@ -8,6 +8,7 @@ const B2C_SHORTCODE   = process.env.MPESA_B2C_SHORTCODE ?? SHORTCODE;
 const B2C_INITIATOR   = process.env.MPESA_B2C_INITIATOR_NAME ?? "";
 const B2C_SECURITY_CREDENTIAL = process.env.MPESA_B2C_SECURITY_CREDENTIAL ?? "";
 const CALLBACK_BASE   = process.env.MPESA_CALLBACK_BASE_URL ?? "";
+const CALLBACK_TOKEN  = process.env.MPESA_CALLBACK_TOKEN ?? "";
 const ENVIRONMENT     = process.env.MPESA_ENVIRONMENT ?? "sandbox";
 const MOCK_MODE       = process.env.MPESA_MOCK_MODE === "true" && process.env.NODE_ENV !== "production";
 
@@ -67,7 +68,7 @@ export async function initiateStkPush(
   accountRef: string,
   description: string
 ): Promise<StkPushResult> {
-  if (!CONSUMER_KEY || !CONSUMER_SECRET || !PASSKEY || !CALLBACK_BASE) {
+  if (!CONSUMER_KEY || !CONSUMER_SECRET || !PASSKEY || !CALLBACK_BASE || CALLBACK_TOKEN.length < 32) {
     if (MOCK_MODE) {
       logger.warn("M-Pesa credentials/callback URL missing — explicit non-production mock mode enabled");
       return {
@@ -84,7 +85,7 @@ export async function initiateStkPush(
     const token = await getAccessToken();
     const timestamp = getTimestamp();
     const password = getPassword(timestamp);
-    const callbackUrl = `${CALLBACK_BASE.replace(/\/$/, "")}/api/mpesa/callback`;
+    const callbackUrl = `${CALLBACK_BASE.replace(/\/$/, "")}/api/mpesa/callback?token=${encodeURIComponent(CALLBACK_TOKEN)}`;
 
     const body = {
       BusinessShortCode: SHORTCODE,
@@ -150,8 +151,9 @@ export async function initiateB2CPayment(
   try {
     const token = await getAccessToken();
     const callbackBase = CALLBACK_BASE.replace(/\/$/, "");
-    const resultUrl = `${callbackBase}/api/mpesa/b2c-result`;
-    const timeoutUrl = `${callbackBase}/api/mpesa/b2c-timeout`;
+    const tokenQuery = `?token=${encodeURIComponent(CALLBACK_TOKEN)}`;
+    const resultUrl = `${callbackBase}/api/mpesa/b2c-result${tokenQuery}`;
+    const timeoutUrl = `${callbackBase}/api/mpesa/b2c-timeout${tokenQuery}`;
 
     const body = {
       InitiatorName: B2C_INITIATOR,
