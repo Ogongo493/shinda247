@@ -8,9 +8,9 @@ import { BrandLogo } from "@/components/brand-logo";
 
 function normalizePhone(phone: string): string {
   const digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("254")) return digits;
-  if (digits.startsWith("0"))   return "254" + digits.slice(1);
-  return digits;
+  if (/^0[17][0-9]{8}$/.test(digits)) return "254" + digits.slice(1);
+  if (/^254[17][0-9]{8}$/.test(digits)) return digits;
+  return "";
 }
 
 export default function RegisterPage() {
@@ -69,8 +69,10 @@ export default function RegisterPage() {
         <div className="bg-card border border-border/50 rounded-2xl p-6 space-y-6 shadow-xl">
           <form onSubmit={handleRegister} className="space-y-4">
             <div className="space-y-2">
-              <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Username</label>
+              <label htmlFor="register-username" className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Username</label>
               <Input
+                id="register-username"
+                autoComplete="username"
                 type="text"
                 placeholder="player_one"
                 value={username}
@@ -84,20 +86,30 @@ export default function RegisterPage() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Phone Number</label>
+              <label htmlFor="register-phone" className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Phone Number</label>
               <Input
+                id="register-phone"
+                autoComplete="tel"
                 type="tel"
+                inputMode="tel"
                 placeholder="0712345678"
+                pattern="(?:0[17][0-9]{8}|\+?254[17][0-9]{8})"
+                title="Enter a Kenyan mobile number such as 0712345678, 0112345678, or +254712345678"
+                minLength={10}
+                maxLength={13}
+                aria-describedby="register-phone-help"
                 value={phone}
                 onChange={e => setPhone(e.target.value)}
                 className="h-12 text-base"
                 required
               />
-              <p className="text-xs text-muted-foreground">Kenyan number (07xx or 01xx) — used for M-Pesa withdrawals</p>
+              <p id="register-phone-help" className="text-xs text-muted-foreground">Kenyan mobile number (07xx or 01xx), or +254 format. Used for M-Pesa withdrawals.</p>
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Password</label>
+              <label htmlFor="register-password" className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Password</label>
               <Input
+                id="register-password"
+                autoComplete="new-password"
                 type="password"
                 placeholder="Min. 6 characters"
                 value={password}
@@ -108,8 +120,10 @@ export default function RegisterPage() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Confirm Password</label>
+              <label htmlFor="register-confirm-password" className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Confirm Password</label>
               <Input
+                id="register-confirm-password"
+                autoComplete="new-password"
                 type="password"
                 placeholder="Repeat your password"
                 value={confirm}
