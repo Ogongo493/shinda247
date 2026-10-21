@@ -5,7 +5,7 @@ import { db } from "@workspace/db";
 import { wallets, transactions, mpesaCallbacks } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { initiateStkPush, initiateB2CPayment } from "../lib/daraja";
-import { creditWallet, debitWallet } from "@workspace/db";
+import { debitWallet } from "@workspace/db";
 import { requireAuth } from "./auth";
 import { logger } from "../lib/logger";
 
@@ -282,7 +282,8 @@ router.post("/withdraw", requireAuth, async (req: Request, res: Response) => {
 
   const debitResult = await debitWallet(user.sub, amountCents, "withdrawal", {
     mpesaPhone:  phone,
-    description: `Withdrawal KES ${amountKes} to ${phone}`,
+    status: "pending",
+    description: `Withdrawal KES ${amountKes} to ${phone} (pending provider confirmation)`,
   });
 
   if (!debitResult.success) {
@@ -292,14 +293,17 @@ router.post("/withdraw", requireAuth, async (req: Request, res: Response) => {
 
   const b2cResult = await initiateB2CPayment(phone, amountKes, `Shinda247 withdrawal`);
 
-  if (!b2cResult.success) {
-    // Reverse the debit
-    await creditWallet(user.sub, amountCents, "refund", {
-      description: `Reversal: B2C failed for withdrawal of KES ${amountKes}`,
-    });
+  if (!b2cResult.success || !b2cResult.conversationId) {
+    await refundPendingWithdrawal(debitResult.transactionId, b2cResult.error ?? "B2C request returned no conversation ID");
     res.status(502).json({ error: b2cResult.error ?? "Withdrawal failed" });
     return;
   }
+
+  // Persist the provider correlation ID on the pending ledger row.
+  await db.update(transactions).set({
+    checkoutRequestId: b2cResult.conversationId,
+    description: `Withdrawal KES ${amountKes} to ${phone} (awaiting Safaricom result)`,
+  }).where(and(eq(transactions.id, debitResult.transactionId), eq(transactions.status, "pending")));
 
   logger.info({ userId: user.sub, phone, amountKes, conversationId: b2cResult.conversationId }, "B2C withdrawal initiated");
 
@@ -310,16 +314,144 @@ router.post("/withdraw", requireAuth, async (req: Request, res: Response) => {
   });
 });
 
+const B2CResultSchema = z.object({
+  Result: z.object({
+    ConversationID: z.string().min(1),
+    ResultCode: z.number().int(),
+    ResultDesc: z.string().optional(),
+    ResultParameters: z.object({
+      ResultParameter: z.array(z.object({
+        Key: z.string(),
+        Value: z.union([z.string(), z.number()]).optional(),
+      })),
+    }).optional(),
+  }),
+});
+
+async function refundPendingWithdrawal(transactionId: number, reason: string): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [withdrawal] = await tx.select().from(transactions)
+      .where(and(
+        eq(transactions.id, transactionId),
+        eq(transactions.type, "withdrawal"),
+        eq(transactions.status, "pending"),
+      ))
+      .for("update");
+    if (!withdrawal) return false;
+
+    const [wallet] = await tx.select().from(wallets)
+      .where(eq(wallets.userId, withdrawal.userId))
+      .for("update");
+    if (!wallet) throw new Error(`Wallet not found for withdrawal ${withdrawal.id}`);
+
+    const balanceBefore = wallet.balanceCents;
+    const balanceAfter = balanceBefore + withdrawal.amountCents;
+    await tx.update(wallets).set({ balanceCents: balanceAfter, updatedAt: new Date() })
+      .where(eq(wallets.userId, withdrawal.userId));
+    await tx.update(transactions).set({
+      status: "failed",
+      failureReason: reason,
+      processedAt: new Date(),
+      description: `Failed withdrawal refunded: ${reason}`,
+    }).where(eq(transactions.id, withdrawal.id));
+    await tx.insert(transactions).values({
+      userId: withdrawal.userId,
+      type: "refund",
+      status: "completed",
+      amountCents: withdrawal.amountCents,
+      balanceBefore,
+      balanceAfter,
+      mpesaPhone: withdrawal.mpesaPhone,
+      description: `Refund for failed withdrawal #${withdrawal.id}`,
+      processedAt: new Date(),
+    });
+    return true;
+  });
+}
+
 router.post("/b2c-result", async (req: Request, res: Response) => {
   if (!isAuthorizedDarajaCallback(req)) {
     logger.warn("Rejected M-Pesa B2C result callback: missing or invalid callback token");
     res.status(403).json({ ResultCode: 1, ResultDesc: "Unauthorized" });
     return;
   }
-  // Callback reconciliation is intentionally not performed until withdrawal state
-  // and provider conversation IDs are durably persisted.
-  logger.info({ conversationId: req.body?.Result?.ConversationID }, "Authorized B2C result callback received; reconciliation pending implementation");
+  // Acknowledge promptly; only pending rows can be reconciled, making retries idempotent.
   res.json({ ResultCode: 0, ResultDesc: "Accepted" });
+
+  try {
+    const parsed = B2CResultSchema.safeParse(req.body);
+    if (!parsed.success) {
+      logger.warn("Rejected malformed authorized B2C result callback");
+      return;
+    }
+    const result = parsed.data.Result;
+    const outcome = await db.transaction(async (tx) => {
+      const [withdrawal] = await tx.select().from(transactions)
+        .where(and(
+          eq(transactions.checkoutRequestId, result.ConversationID),
+          eq(transactions.type, "withdrawal"),
+          eq(transactions.status, "pending"),
+        ))
+        .for("update");
+      if (!withdrawal) return "unmatched" as const;
+
+      if (result.ResultCode !== 0) {
+        const [wallet] = await tx.select().from(wallets)
+          .where(eq(wallets.userId, withdrawal.userId))
+          .for("update");
+        if (!wallet) throw new Error(`Wallet not found for withdrawal ${withdrawal.id}`);
+        const balanceBefore = wallet.balanceCents;
+        const balanceAfter = balanceBefore + withdrawal.amountCents;
+        await tx.update(wallets).set({ balanceCents: balanceAfter, updatedAt: new Date() })
+          .where(eq(wallets.userId, withdrawal.userId));
+        await tx.update(transactions).set({
+          status: "failed",
+          failureReason: result.ResultDesc ?? `Safaricom B2C result code ${result.ResultCode}`,
+          processedAt: new Date(),
+        }).where(eq(transactions.id, withdrawal.id));
+        await tx.insert(transactions).values({
+          userId: withdrawal.userId,
+          type: "refund",
+          status: "completed",
+          amountCents: withdrawal.amountCents,
+          balanceBefore,
+          balanceAfter,
+          mpesaPhone: withdrawal.mpesaPhone,
+          description: `Refund for failed withdrawal #${withdrawal.id}`,
+          processedAt: new Date(),
+        });
+        return "refunded" as const;
+      }
+
+      const parameters = result.ResultParameters?.ResultParameter ?? [];
+      const value = (key: string) => parameters.find((item) => item.Key === key)?.Value;
+      const paidAmount = Number(value("TransactionAmount"));
+      const receipt = String(value("TransactionReceipt") ?? "");
+      if (!Number.isSafeInteger(paidAmount) || paidAmount * 100 !== withdrawal.amountCents || !receipt) {
+        logger.error({ conversationId: result.ConversationID, withdrawalId: withdrawal.id }, "B2C success callback missing matching amount/receipt; withdrawal left pending for reconciliation");
+        return "unverified-success" as const;
+      }
+
+      await tx.update(wallets).set({
+        totalWithdrawn: sql`${wallets.totalWithdrawn} + ${withdrawal.amountCents}`,
+        updatedAt: new Date(),
+      }).where(eq(wallets.userId, withdrawal.userId));
+      await tx.update(transactions).set({
+        status: "completed",
+        mpesaRef: receipt,
+        processedAt: new Date(),
+        description: `Withdrawal completed via M-Pesa receipt ${receipt}`,
+      }).where(eq(transactions.id, withdrawal.id));
+      return "completed" as const;
+    });
+    if (outcome === "unmatched") {
+      logger.error({ conversationId: parsed.data.Result.ConversationID }, "No pending withdrawal matched B2C result callback");
+    } else {
+      logger.info({ conversationId: parsed.data.Result.ConversationID, outcome }, "B2C withdrawal callback reconciled");
+    }
+  } catch (err) {
+    logger.error({ err }, "Error reconciling B2C result callback");
+  }
 });
 
 router.post("/b2c-timeout", async (req: Request, res: Response) => {
@@ -328,7 +460,8 @@ router.post("/b2c-timeout", async (req: Request, res: Response) => {
     res.status(403).json({ ResultCode: 1, ResultDesc: "Unauthorized" });
     return;
   }
-  logger.warn({ conversationId: req.body?.Result?.ConversationID }, "Authorized B2C timeout callback received; reconciliation pending implementation");
+  // Timeout is ambiguous: do not refund until Safaricom confirms the final outcome.
+  logger.warn({ conversationId: req.body?.Result?.ConversationID }, "B2C timeout received; withdrawal remains pending for provider reconciliation");
   res.json({ ResultCode: 0, ResultDesc: "Accepted" });
 });
 
