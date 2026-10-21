@@ -22,7 +22,7 @@ services:
       - key: MPESA_CALLBACK_BASE_URL
         sync: false
       - key: MPESA_CALLBACK_TOKEN
-        sync: false
+        generateValue: true
       - key: AT_ENV
         value: sandbox
       - key: AT_USERNAME
