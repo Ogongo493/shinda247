@@ -8,9 +8,9 @@ import { BrandLogo } from "@/components/brand-logo";
 
 function normalizePhone(phone: string): string {
   const digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("254")) return digits;
-  if (digits.startsWith("0"))   return "254" + digits.slice(1);
-  return digits;
+  if (/^0[17][0-9]{8}$/.test(digits)) return "254" + digits.slice(1);
+  if (/^254[17][0-9]{8}$/.test(digits)) return digits;
+  return "";
 }
 
 export default function LoginPage() {
@@ -56,10 +56,17 @@ export default function LoginPage() {
         <div className="bg-card border border-border/50 rounded-2xl p-6 space-y-6 shadow-xl">
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
-              <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Phone Number</label>
+              <label htmlFor="login-phone" className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Phone Number</label>
               <Input
+                id="login-phone"
+                autoComplete="tel"
                 type="tel"
+                inputMode="tel"
                 placeholder="0712345678"
+                pattern="(?:0[17][0-9]{8}|\+?254[17][0-9]{8})"
+                title="Enter a Kenyan mobile number such as 0712345678, 0112345678, or +254712345678"
+                minLength={10}
+                maxLength={13}
                 value={phone}
                 onChange={e => setPhone(e.target.value)}
                 className="h-12 text-base"
@@ -67,8 +74,10 @@ export default function LoginPage() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Password</label>
+              <label htmlFor="login-password" className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Password</label>
               <Input
+                id="login-password"
+                autoComplete="current-password"
                 type="password"
                 placeholder="Enter your password"
                 value={password}
