@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db } from "@workspace/db";
 import { wallets, transactions, mpesaCallbacks } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
-import { initiateStkPush, initiateB2CPayment } from "../lib/daraja";
+import { initiateStkPush, initiateB2CPayment, verifyStkPushStatus } from "../lib/daraja";
 import { debitWallet } from "@workspace/db";
 import { requireAuth } from "./auth";
 import { logger } from "../lib/logger";
@@ -121,6 +121,17 @@ router.post("/callback", async (req: Request, res: Response) => {
 
     const cb = body.data.Body.stkCallback;
     const { MerchantRequestID, CheckoutRequestID, ResultCode, ResultDesc, CallbackMetadata } = cb;
+    const providerStatus = await verifyStkPushStatus(CheckoutRequestID);
+    if (
+      !providerStatus.verified ||
+      providerStatus.checkoutRequestId !== CheckoutRequestID ||
+      providerStatus.merchantRequestId !== MerchantRequestID ||
+      providerStatus.resultCode !== String(ResultCode)
+    ) {
+      logger.warn({ CheckoutRequestID, providerResultCode: providerStatus.resultCode }, "Safaricom status query did not match callback; wallet unchanged");
+      res.status(503).json({ ResultCode: 1, ResultDesc: "Payment status not independently verified" });
+      return;
+    }
     const getItem = (name: string) => CallbackMetadata?.Item.find(i => i.Name === name)?.Value;
 
     const amountKes = Number(getItem("Amount") ?? 0);
