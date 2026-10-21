@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { db } from "@workspace/db";
 import { wallets, transactions, mpesaCallbacks } from "@workspace/db";
@@ -14,6 +15,16 @@ const MIN_DEPOSIT_KES    = 10;
 const MAX_DEPOSIT_KES    = 150_000;
 const MIN_WITHDRAWAL_KES = 50;
 const MAX_WITHDRAWAL_KES = 150_000;
+const MPESA_CALLBACK_TOKEN = process.env.MPESA_CALLBACK_TOKEN ?? "";
+
+/** Daraja callbacks do not provide a verifiable signature; require a high-entropy shared URL token. */
+function isAuthorizedDarajaCallback(req: Request): boolean {
+  const supplied = req.query.token;
+  if (MPESA_CALLBACK_TOKEN.length < 32 || typeof supplied !== "string") return false;
+  const expectedBytes = Buffer.from(MPESA_CALLBACK_TOKEN, "utf8");
+  const suppliedBytes = Buffer.from(supplied, "utf8");
+  return expectedBytes.length === suppliedBytes.length && timingSafeEqual(expectedBytes, suppliedBytes);
+}
 
 // In-memory map: checkoutRequestId → userId
 // Backed by the transactions table for durability
@@ -94,6 +105,12 @@ const CallbackSchema = z.object({
 });
 
 router.post("/callback", async (req: Request, res: Response) => {
+  if (!isAuthorizedDarajaCallback(req)) {
+    logger.warn("Rejected M-Pesa STK callback: missing or invalid callback token");
+    res.status(403).json({ ResultCode: 1, ResultDesc: "Unauthorized" });
+    return;
+  }
+
   // Safaricom expects a prompt acknowledgement; processing continues server-side.
   res.json({ ResultCode: 0, ResultDesc: "Accepted" });
 
@@ -294,12 +311,24 @@ router.post("/withdraw", requireAuth, async (req: Request, res: Response) => {
 });
 
 router.post("/b2c-result", async (req: Request, res: Response) => {
-  logger.info({ body: req.body }, "B2C result callback received");
+  if (!isAuthorizedDarajaCallback(req)) {
+    logger.warn("Rejected M-Pesa B2C result callback: missing or invalid callback token");
+    res.status(403).json({ ResultCode: 1, ResultDesc: "Unauthorized" });
+    return;
+  }
+  // Callback reconciliation is intentionally not performed until withdrawal state
+  // and provider conversation IDs are durably persisted.
+  logger.info({ conversationId: req.body?.Result?.ConversationID }, "Authorized B2C result callback received; reconciliation pending implementation");
   res.json({ ResultCode: 0, ResultDesc: "Accepted" });
 });
 
 router.post("/b2c-timeout", async (req: Request, res: Response) => {
-  logger.warn({ body: req.body }, "B2C timeout callback received");
+  if (!isAuthorizedDarajaCallback(req)) {
+    logger.warn("Rejected M-Pesa B2C timeout callback: missing or invalid callback token");
+    res.status(403).json({ ResultCode: 1, ResultDesc: "Unauthorized" });
+    return;
+  }
+  logger.warn({ conversationId: req.body?.Result?.ConversationID }, "Authorized B2C timeout callback received; reconciliation pending implementation");
   res.json({ ResultCode: 0, ResultDesc: "Accepted" });
 });
 
