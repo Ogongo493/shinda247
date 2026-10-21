@@ -83,7 +83,7 @@ if (STATIC_DIR) {
 
   app.get("/robots.txt", (_req, res) => {
     res.type("text/plain").send(
-      "User-agent: *\\nDisallow: /api/\\nDisallow: /admin\\nDisallow: /history\\nDisallow: /players\\nDisallow: /notifications\\n"
+      "User-agent: *\nDisallow: /api/\nDisallow: /admin\nDisallow: /history\nDisallow: /players\nDisallow: /notifications\n"
     );
   });
 
@@ -101,7 +101,7 @@ if (STATIC_DIR) {
 
   // Only known browser routes receive the SPA shell. Unknown routes and files 404.
   app.get("/", sendAppShell);
-  app.get(/^\\/(?:login|register|admin|history|players|notifications|faq)\\/?$/, sendAppShell);
+  app.get(/^\/(?:login|register|admin|history|players|notifications|faq)\/?$/, sendAppShell);
 }
 
 app.use((_req, res) => {
