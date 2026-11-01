@@ -38,10 +38,16 @@ export function auditAdminMutation(req: Request, res: Response, next: NextFuncti
           : null;
     const createdAt = new Date();
     const userAgent = req.get("user-agent")?.slice(0, 1000) ?? null;
+    // Capture only operational fields needed to understand the action.
+    // Never copy passwords, authenticator codes, tokens, or arbitrary request bodies.
     const details = {
       method: req.method,
       path: req.path.slice(0, 250),
       statusCode,
+      ...(typeof req.body?.action === "string" ? { requestedAction: req.body.action.slice(0, 40) } : {}),
+      ...(typeof req.body?.amountKes === "number" ? { amountKes: req.body.amountKes } : {}),
+      ...(typeof req.body?.paused === "boolean" ? { paused: req.body.paused } : {}),
+      ...(typeof req.body?.reason === "string" ? { reason: req.body.reason.trim().slice(0, 250) } : {}),
     };
 
     await db.transaction(async (tx) => {
