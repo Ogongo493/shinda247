@@ -86,3 +86,36 @@ CREATE INDEX IF NOT EXISTS admin_mfa_challenges_user_id_idx ON admin_mfa_challen
 ALTER TABLE admin_mfa_challenges ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE admin_mfa_challenges FROM anon, authenticated;
 GRANT ALL ON TABLE admin_mfa_challenges TO service_role;
+
+-- Enforce admin/player separation below the API as well. Existing history is
+-- retained, but an administrator cannot create or mutate player wallet,
+-- transaction, or wager records through another server path.
+CREATE OR REPLACE FUNCTION reject_admin_player_financial_activity()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  target_user_id integer;
+BEGIN
+  target_user_id := NEW.user_id;
+  IF target_user_id IS NOT NULL AND EXISTS (
+    SELECT 1 FROM users WHERE id = target_user_id AND account_type = 'admin'
+  ) THEN
+    RAISE EXCEPTION 'Administrator accounts cannot use player financial or betting records';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS wallets_reject_admin_activity ON wallets;
+CREATE TRIGGER wallets_reject_admin_activity
+  BEFORE INSERT OR UPDATE ON wallets
+  FOR EACH ROW EXECUTE FUNCTION reject_admin_player_financial_activity();
+
+DROP TRIGGER IF EXISTS transactions_reject_admin_activity ON transactions;
+CREATE TRIGGER transactions_reject_admin_activity
+  BEFORE INSERT OR UPDATE ON transactions
+  FOR EACH ROW EXECUTE FUNCTION reject_admin_player_financial_activity();
+
+DROP TRIGGER IF EXISTS bets_reject_admin_activity ON bets;
+CREATE TRIGGER bets_reject_admin_activity
+  BEFORE INSERT OR UPDATE ON bets
+  FOR EACH ROW EXECUTE FUNCTION reject_admin_player_financial_activity();
