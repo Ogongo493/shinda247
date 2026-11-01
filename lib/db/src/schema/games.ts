@@ -22,6 +22,7 @@ export const games = pgTable('games', {
   elapsedMs:       integer('elapsed_ms'),
   totalBetsCents:  bigint('total_bets_cents', { mode: 'number' }).notNull().default(0),
   totalPayoutCents: bigint('total_payout_cents', { mode: 'number' }).notNull().default(0),
+  riskCeilingCents: bigint('risk_ceiling_cents', { mode: 'number' }),
   playerCount:     integer('player_count').notNull().default(0),
   forced:          boolean('forced').notNull().default(false),
   createdAt:       timestamp('created_at').notNull().defaultNow(),
