@@ -141,16 +141,8 @@ router.patch("/players/:id/toggle-active", requireAuth, requireAdmin, async (req
   res.json(updated);
 });
 
-router.patch("/players/:id/toggle-admin", requireAuth, requireAdmin, async (req: Request, res: Response) => {
-  const userId = parseInt(String(req.params.id));
-  const [user] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq(users.id, userId));
-  if (!user) { res.status(404).json({ error: "User not found" }); return; }
-  const [updated] = await db
-    .update(users)
-    .set({ isAdmin: !user.isAdmin })
-    .where(eq(users.id, userId))
-    .returning({ id: users.id, isAdmin: users.isAdmin });
-  res.json(updated);
+router.patch("/players/:id/toggle-admin", requireAuth, requireAdmin, async (_req: Request, res: Response) => {
+  res.status(403).json({ error: "Administrator roles can only be changed through the controlled account-provisioning process." });
 });
 
 
