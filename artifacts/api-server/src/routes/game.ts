@@ -11,7 +11,7 @@ import {
   GetWalletResponse,
 } from "@workspace/api-zod";
 import { db } from "@workspace/db";
-import { wallets, transactions } from "@workspace/db";
+import { wallets, transactions, houseReserve } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import * as engine from "../lib/gameEngine";
 import { verifyJwt, extractToken } from "../lib/jwt";
@@ -21,7 +21,7 @@ import rateLimit from "express-rate-limit";
 const router: IRouter = Router();
 
 const MIN_BET_KES = 10;
-const MAX_BET_KES = 3_000; // matches Pakakumi — protects house liquidity
+
 
 /** 1 bet per second per user — blocks bet-spamming bots */
 const betLimiter = rateLimit({
@@ -78,8 +78,18 @@ router.post("/game/bet", requireAuth, betLimiter, async (req: Request, res) => {
     res.status(400).json({ error: `Minimum bet is KES ${MIN_BET_KES}` });
     return;
   }
-  if (amount > MAX_BET_KES) {
-    res.status(400).json({ error: `Maximum bet is KES ${MAX_BET_KES}` });
+  const [reserve] = await db.select({
+    balanceCents: houseReserve.balanceCents,
+  }).from(houseReserve).where(eq(houseReserve.id, 1));
+  if (!reserve) {
+    res.status(503).json({ error: "House reserve is not initialized" });
+    return;
+  }
+  const maxAllowedPayoutKes = Math.floor(reserve.balanceCents * 0.05) / 100;
+  if (amount * 100 > Math.floor(reserve.balanceCents * 0.05)) {
+    res.status(400).json({
+      error: `Maximum bet currently limited to ${maxAllowedPayoutKes.toFixed(2)} KSH due to liquidity.`,
+    });
     return;
   }
 
