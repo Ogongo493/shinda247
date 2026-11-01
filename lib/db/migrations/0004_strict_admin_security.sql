@@ -4,7 +4,8 @@ ALTER TABLE users
   ADD COLUMN IF NOT EXISTS account_type varchar(16) NOT NULL DEFAULT 'player',
   ADD COLUMN IF NOT EXISTS email varchar(254),
   ADD COLUMN IF NOT EXISTS admin_totp_secret_enc text,
-  ADD COLUMN IF NOT EXISTS admin_totp_enabled boolean NOT NULL DEFAULT false;
+  ADD COLUMN IF NOT EXISTS admin_totp_enabled boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS admin_totp_last_step bigint;
 
 -- Preserve existing administrators exactly as currently represented in the database.
 UPDATE users SET account_type = CASE WHEN is_admin THEN 'admin' ELSE 'player' END;
