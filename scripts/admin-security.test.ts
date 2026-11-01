@@ -7,6 +7,7 @@ import {
   decryptTotpSecret,
   verifyTotp,
   matchingTotpStep,
+  isTotpStepFresh,
 } from "../artifacts/api-server/src/lib/admin-totp.ts";
 
 process.env.ADMIN_TOTP_ENCRYPTION_KEY = Buffer.alloc(32, 0x5a).toString("base64");
@@ -76,5 +77,8 @@ test("TOTP matching returns the accepted counter so a code can be consumed only 
   assert.equal(matchingTotpStep(secret, "000000", time), null);
   // The persistence layer records this step and rejects any subsequent
   // verification whose matching step is less than or equal to it.
-  assert.ok(step! > (step! - 1));
+  assert.equal(isTotpStepFresh(step, null), true);
+  assert.equal(isTotpStepFresh(step, step), false);
+  assert.equal(isTotpStepFresh(step, step! - 1), false);
+  assert.equal(isTotpStepFresh(null, null), false);
 });
