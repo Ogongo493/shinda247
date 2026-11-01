@@ -4,6 +4,7 @@ interface AuthUser {
   id: number;
   phone: string;
   username: string;
+  email?: string | null;
   isAdmin: boolean;
 }
 
