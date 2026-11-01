@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { db } from "@workspace/db";
-import { games, bets, users, wallets } from "@workspace/db";
+import { games, bets, users, wallets, gameControl } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
 import { logger } from "./logger";
 import {
@@ -43,6 +43,9 @@ let flyingStartedAt: number | null = null;
 let onlineCount      = Math.floor(Math.random() * 500) + 800;
 
 let emitFn: ((event: string, data: unknown) => void) | null = null;
+let gamePaused = false;
+
+export function setGamePaused(paused: boolean): void { gamePaused = paused; }
 
 /**
  * Engine-event fan-out - allows botSimulator (and any future module) to
