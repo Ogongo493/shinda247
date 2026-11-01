@@ -1,11 +1,12 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import crypto from "crypto";
 import { db } from "@workspace/db";
-import { users, wallets } from "@workspace/db";
+import { users, wallets, adminSessions } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { signJwt, verifyJwt, extractToken, type JwtPayload } from "../lib/jwt";
 import { logger } from "../lib/logger";
+import { createTotpSecret, encryptTotpSecret, decryptTotpSecret, verifyTotp, authenticatorUri } from "../lib/admin-totp";
 import rateLimit from "express-rate-limit";
 
 const router: IRouter = Router();
@@ -116,6 +117,8 @@ router.post("/register", registerLimiter, async (req: Request, res: Response) =>
     username,
     passwordHash,
     isActive: true,
+    isAdmin: false,
+    accountType: "player",
   }).returning();
 
   await db.insert(wallets).values({ userId: user.id, balanceCents: 0 });
@@ -165,17 +168,132 @@ router.post("/login", loginLimiter, async (req: Request, res: Response) => {
     return;
   }
 
+  if (user.accountType === "admin") {
+    try {
+      if (!user.adminTotpEnabled) {
+        const secret = user.adminTotpSecretEnc
+          ? decryptTotpSecret(user.adminTotpSecretEnc)
+          : createTotpSecret();
+        if (!user.adminTotpSecretEnc) {
+          await db.update(users).set({ adminTotpSecretEnc: encryptTotpSecret(secret) })
+            .where(eq(users.id, user.id));
+        }
+        const setupToken = signJwt({
+          sub: user.id, phone: user.phone, username: user.username,
+          isAdmin: true, purpose: "admin_mfa_setup",
+        }, 10 * 60);
+        res.json({
+          mfaSetupRequired: true,
+          setupToken,
+          authenticatorSecret: secret,
+          authenticatorUri: authenticatorUri(secret, user.username),
+          user: { id: user.id, username: user.username, isAdmin: true },
+        });
+        return;
+      }
+      const challengeToken = signJwt({
+        sub: user.id, phone: user.phone, username: user.username,
+        isAdmin: true, purpose: "admin_mfa_challenge",
+      }, 5 * 60);
+      res.json({ mfaRequired: true, challengeToken });
+      return;
+    } catch (error) {
+      logger.error({ error, userId: user.id }, "Administrator MFA setup unavailable");
+      res.status(503).json({ error: "Administrator MFA is not configured on the server yet." });
+      return;
+    }
+  }
+
   const token = signJwt({
-    sub:      user.id,
-    phone:    user.phone,
+    sub: user.id,
+    phone: user.phone,
     username: user.username,
-    isAdmin:  user.isAdmin,
+    isAdmin: false,
   });
 
   res.json({
     token,
-    user: { id: user.id, phone: user.phone, username: user.username, isAdmin: user.isAdmin },
+    user: { id: user.id, phone: user.phone, username: user.username, isAdmin: false },
   });
+});
+
+
+// Administrator authenticator enrollment. The setup token is short-lived and
+// cannot access the dashboard or any protected administrator API.
+router.post("/admin/mfa/verify-setup", loginLimiter, async (req: Request, res: Response) => {
+  const body = z.object({
+    setupToken: z.string().min(1),
+    code: z.string().regex(/^\\d{6}$/),
+  }).safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Enter the six-digit authenticator code." }); return; }
+  const payload = verifyJwt(body.data.setupToken);
+  if (!payload || payload.purpose !== "admin_mfa_setup") {
+    res.status(401).json({ error: "Administrator setup session expired. Sign in again." });
+    return;
+  }
+  const [account] = await db.select().from(users).where(eq(users.id, payload.sub));
+  if (!account || !account.isActive || account.accountType !== "admin" || account.adminTotpEnabled || !account.adminTotpSecretEnc) {
+    res.status(403).json({ error: "Administrator authenticator enrollment is not available." });
+    return;
+  }
+  try {
+    const secret = decryptTotpSecret(account.adminTotpSecretEnc);
+    if (!verifyTotp(secret, body.data.code)) {
+      res.status(401).json({ error: "Incorrect authenticator code." });
+      return;
+    }
+    await db.update(users).set({ adminTotpEnabled: true, updatedAt: new Date() })
+      .where(eq(users.id, account.id));
+    res.json({ success: true, message: "Authenticator enabled. Sign in again to complete administrator verification." });
+  } catch (error) {
+    logger.error({ error, userId: account.id }, "Administrator MFA enrollment verification failed");
+    res.status(503).json({ error: "Could not verify the authenticator. Check server MFA configuration." });
+  }
+});
+
+// Complete administrator login only after a valid six-digit TOTP code.
+router.post("/admin/mfa/verify", loginLimiter, async (req: Request, res: Response) => {
+  const body = z.object({
+    challengeToken: z.string().min(1),
+    code: z.string().regex(/^\\d{6}$/),
+  }).safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Enter the six-digit authenticator code." }); return; }
+  const payload = verifyJwt(body.data.challengeToken);
+  if (!payload || payload.purpose !== "admin_mfa_challenge") {
+    res.status(401).json({ error: "Administrator verification expired. Sign in again." });
+    return;
+  }
+  const [account] = await db.select().from(users).where(eq(users.id, payload.sub));
+  if (!account || !account.isActive || account.accountType !== "admin" ||
+      !account.adminTotpEnabled || !account.adminTotpSecretEnc) {
+    res.status(403).json({ error: "Administrator account is not eligible to sign in." });
+    return;
+  }
+  try {
+    const secret = decryptTotpSecret(account.adminTotpSecretEnc);
+    if (!verifyTotp(secret, body.data.code)) {
+      res.status(401).json({ error: "Incorrect authenticator code." });
+      return;
+    }
+    const token = signJwt({
+      sub: account.id, phone: account.phone, username: account.username, isAdmin: true,
+    }, 12 * 60 * 60);
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const now = new Date();
+    await db.insert(adminSessions).values({
+      userId: account.id,
+      tokenHash,
+      lastActivityAt: now,
+      expiresAt: new Date(now.getTime() + 15 * 60 * 1000),
+    });
+    res.json({
+      token,
+      user: { id: account.id, phone: account.phone, username: account.username, isAdmin: true },
+    });
+  } catch (error) {
+    logger.error({ error, userId: account.id }, "Administrator MFA login failed");
+    res.status(503).json({ error: "Administrator sign-in is temporarily unavailable." });
+  }
 });
 
 router.get("/me", requireAuth, async (req: Request, res: Response) => {
