@@ -223,7 +223,7 @@ router.post("/login", loginLimiter, async (req: Request, res: Response) => {
 router.post("/admin/mfa/verify-setup", loginLimiter, async (req: Request, res: Response) => {
   const body = z.object({
     setupToken: z.string().min(1),
-    code: z.string().regex(/^\\d{6}$/),
+    code: z.string().regex(/^\d{6}$/),
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: "Enter the six-digit authenticator code." }); return; }
   const payload = verifyJwt(body.data.setupToken);
@@ -255,7 +255,7 @@ router.post("/admin/mfa/verify-setup", loginLimiter, async (req: Request, res: R
 router.post("/admin/mfa/verify", loginLimiter, async (req: Request, res: Response) => {
   const body = z.object({
     challengeToken: z.string().min(1),
-    code: z.string().regex(/^\\d{6}$/),
+    code: z.string().regex(/^\d{6}$/),
   }).safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: "Enter the six-digit authenticator code." }); return; }
   const payload = verifyJwt(body.data.challengeToken);
