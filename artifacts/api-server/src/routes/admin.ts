@@ -132,8 +132,8 @@ router.get("/games", requireAuth, requireAdmin, async (req: Request, res: Respon
 
 router.patch("/players/:id/toggle-active", requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const userId = parseInt(String(req.params.id));
-  const [user] = await db.select({ isActive: users.isActive }).from(users).where(eq(users.id, userId));
-  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  const [user] = await db.select({ isActive: users.isActive, accountType: users.accountType }).from(users).where(eq(users.id, userId));
+  if (!user || user.accountType !== "player") { res.status(404).json({ error: "Player not found" }); return; }
   const [updated] = await db
     .update(users)
     .set({ isActive: !user.isActive })
