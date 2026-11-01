@@ -27,14 +27,24 @@ router.get("/stats", requireAuth, requireAdmin, async (_req: Request, res: Respo
   const [gameCount] = await db.select({ count: count() }).from(games);
   const [totalDeposited] = await db
     .select({ total: sum(wallets.totalDeposited) })
-    .from(wallets);
+    .from(wallets)
+    .innerJoin(users, eq(wallets.userId, users.id))
+    .where(eq(users.accountType, "player"));
   const [totalWithdrawn] = await db
     .select({ total: sum(wallets.totalWithdrawn) })
-    .from(wallets);
+    .from(wallets)
+    .innerJoin(users, eq(wallets.userId, users.id))
+    .where(eq(users.accountType, "player"));
   const [totalBalance] = await db
     .select({ total: sum(wallets.balanceCents) })
-    .from(wallets);
-  const [betCount] = await db.select({ count: count() }).from(bets);
+    .from(wallets)
+    .innerJoin(users, eq(wallets.userId, users.id))
+    .where(eq(users.accountType, "player"));
+  const [betCount] = await db
+    .select({ count: count() })
+    .from(bets)
+    .innerJoin(users, eq(bets.userId, users.id))
+    .where(eq(users.accountType, "player"));
 
   res.json({
     players: playerCount.count,
@@ -99,7 +109,8 @@ router.get("/transactions", requireAuth, requireAdmin, async (req: Request, res:
       createdAt: transactions.createdAt,
     })
     .from(transactions)
-    .leftJoin(users, eq(transactions.userId, users.id))
+    .innerJoin(users, eq(transactions.userId, users.id))
+    .where(eq(users.accountType, "player"))
     .orderBy(desc(transactions.createdAt))
     .limit(limit)
     .offset(offset);
