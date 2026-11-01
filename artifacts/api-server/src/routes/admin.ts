@@ -23,7 +23,7 @@ async function requireAdmin(req: Request, res: Response, next: any): Promise<voi
 }
 
 router.get("/stats", requireAuth, requireAdmin, async (_req: Request, res: Response) => {
-  const [playerCount] = await db.select({ count: count() }).from(users);
+  const [playerCount] = await db.select({ count: count() }).from(users).where(eq(users.accountType, "player"));
   const [gameCount] = await db.select({ count: count() }).from(games);
   const [totalDeposited] = await db
     .select({ total: sum(wallets.totalDeposited) })
@@ -66,6 +66,7 @@ router.get("/players", requireAuth, requireAdmin, async (req: Request, res: Resp
     })
     .from(users)
     .leftJoin(wallets, eq(users.id, wallets.userId))
+    .where(eq(users.accountType, "player"))
     .orderBy(desc(users.createdAt))
     .limit(limit)
     .offset(offset);
