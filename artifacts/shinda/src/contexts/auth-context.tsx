@@ -23,18 +23,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const storedToken = localStorage.getItem("shinda_token");
-    const storedUser = localStorage.getItem("shinda_user");
-    if (storedToken && storedUser) {
+    let active = true;
+    async function restoreSession() {
+      const storedToken = localStorage.getItem("shinda_token");
+      if (!storedToken) { if (active) setIsLoading(false); return; }
       try {
-        setToken(storedToken);
-        setUser(JSON.parse(storedUser));
+        const response = await fetch("/api/auth/me", { headers: { Authorization: `Bearer ${storedToken}` } });
+        if (!response.ok) throw new Error("Session expired");
+        const currentUser = await response.json();
+        if (active) {
+          setToken(storedToken);
+          setUser(currentUser);
+          localStorage.setItem("shinda_user", JSON.stringify(currentUser));
+        }
       } catch {
         localStorage.removeItem("shinda_token");
         localStorage.removeItem("shinda_user");
-      }
+        if (active) { setToken(null); setUser(null); }
+      } finally { if (active) setIsLoading(false); }
     }
-    setIsLoading(false);
+    void restoreSession();
+    return () => { active = false; };
   }, []);
 
   function login(newToken: string, newUser: AuthUser) {
