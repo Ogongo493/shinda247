@@ -79,14 +79,19 @@ function totpAt(secret: string, timeMs: number): string {
   return String(binary % 1_000_000).padStart(6, "0");
 }
 
-export function verifyTotp(secret: string, code: string, now = Date.now()): boolean {
-  if (!/^\d{6}$/.test(code)) return false;
+export function matchingTotpStep(secret: string, code: string, now = Date.now()): number | null {
+  if (!/^\d{6}$/.test(code)) return null;
   const supplied = Buffer.from(code);
-  for (const offset of [-30000, 0, 30000]) {
-    const expected = Buffer.from(totpAt(secret, now + offset));
-    if (crypto.timingSafeEqual(supplied, expected)) return true;
+  const currentStep = Math.floor(now / 30000);
+  for (const step of [currentStep - 1, currentStep, currentStep + 1]) {
+    const expected = Buffer.from(totpAt(secret, step * 30000));
+    if (crypto.timingSafeEqual(supplied, expected)) return step;
   }
-  return false;
+  return null;
+}
+
+export function verifyTotp(secret: string, code: string, now = Date.now()): boolean {
+  return matchingTotpStep(secret, code, now) !== null;
 }
 
 export function authenticatorUri(secret: string, username: string): string {
