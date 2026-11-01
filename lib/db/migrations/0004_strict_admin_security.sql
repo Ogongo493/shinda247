@@ -90,10 +90,9 @@ ALTER TABLE admin_mfa_challenges ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE admin_mfa_challenges FROM anon, authenticated;
 GRANT ALL ON TABLE admin_mfa_challenges TO service_role;
 
--- Enforce admin/player separation below the API as well. Existing history is
--- retained, but an administrator cannot create or mutate player wallet,
--- transaction, or wager records through another server path.
-CREATE OR REPLACE FUNCTION reject_admin_player_financial_activity()
+-- Enforce admin/player separation below the API as well, without breaking
+-- settlement of bets or transactions that existed before an account was converted.
+CREATE OR REPLACE FUNCTION reject_admin_player_financial_creation()
 RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
   target_user_id integer;
@@ -102,23 +101,28 @@ BEGIN
   IF target_user_id IS NOT NULL AND EXISTS (
     SELECT 1 FROM users WHERE id = target_user_id AND account_type = 'admin'
   ) THEN
-    RAISE EXCEPTION 'Administrator accounts cannot use player financial or betting records';
+    IF TG_TABLE_NAME = 'transactions' AND NEW.type::text NOT IN ('deposit', 'withdrawal', 'bet') THEN
+      RETURN NEW;
+    END IF;
+    RAISE EXCEPTION 'Administrator accounts cannot initiate new player financial or betting activity';
   END IF;
   RETURN NEW;
 END;
 $$;
 
+-- Only block creation of new player-facing records. Updates are needed to
+-- settle/refund pre-existing bets and pending transactions safely.
 DROP TRIGGER IF EXISTS wallets_reject_admin_activity ON wallets;
 CREATE TRIGGER wallets_reject_admin_activity
-  BEFORE INSERT OR UPDATE ON wallets
-  FOR EACH ROW EXECUTE FUNCTION reject_admin_player_financial_activity();
+  BEFORE INSERT ON wallets
+  FOR EACH ROW EXECUTE FUNCTION reject_admin_player_financial_creation();
 
 DROP TRIGGER IF EXISTS transactions_reject_admin_activity ON transactions;
 CREATE TRIGGER transactions_reject_admin_activity
-  BEFORE INSERT OR UPDATE ON transactions
-  FOR EACH ROW EXECUTE FUNCTION reject_admin_player_financial_activity();
+  BEFORE INSERT ON transactions
+  FOR EACH ROW EXECUTE FUNCTION reject_admin_player_financial_creation();
 
 DROP TRIGGER IF EXISTS bets_reject_admin_activity ON bets;
 CREATE TRIGGER bets_reject_admin_activity
-  BEFORE INSERT OR UPDATE ON bets
-  FOR EACH ROW EXECUTE FUNCTION reject_admin_player_financial_activity();
+  BEFORE INSERT ON bets
+  FOR EACH ROW EXECUTE FUNCTION reject_admin_player_financial_creation();
