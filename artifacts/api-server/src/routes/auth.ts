@@ -2,7 +2,7 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import crypto from "crypto";
 import { db } from "@workspace/db";
 import { users, wallets, adminSessions, adminMfaChallenges } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, ilike } from "drizzle-orm";
 import { z } from "zod";
 import { signJwt, verifyJwt, extractToken, type JwtPayload } from "../lib/jwt";
 import { logger } from "../lib/logger";
@@ -94,7 +94,7 @@ router.post("/register", registerLimiter, async (req: Request, res: Response) =>
 
   const phone    = normalizePhone(body.data.phone);
   const username = body.data.username;
-  const password = body.data.password;
+  const password = body.data.password;\n  const email = body.data.email?.trim().toLowerCase() || null;
 
   // Check phone not taken
   const existingPhone = await db.select({ id: users.id }).from(users).where(eq(users.phone, phone));
@@ -108,6 +108,14 @@ router.post("/register", registerLimiter, async (req: Request, res: Response) =>
   if (existingUsername.length > 0) {
     res.status(409).json({ error: "Username already taken" });
     return;
+  }
+
+  if (email) {
+    const [existingEmail] = await db.select({ id: users.id }).from(users).where(ilike(users.email, email));
+    if (existingEmail) {
+      res.status(409).json({ error: "Email address already registered" });
+      return;
+    }
   }
 
   const passwordHash = await hashPassword(password);
@@ -134,7 +142,7 @@ router.post("/register", registerLimiter, async (req: Request, res: Response) =>
 
   res.status(201).json({
     token,
-    user: { id: user.id, phone: user.phone, username: user.username, isAdmin: user.isAdmin },
+    user: { id: user.id, phone: user.phone, username: user.username, email: user.email, isAdmin: user.isAdmin },
   });
 });
 
