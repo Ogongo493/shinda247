@@ -13,6 +13,9 @@ UPDATE users SET account_type = CASE WHEN is_admin THEN 'admin' ELSE 'player' EN
 -- Keep the account and wallet history; player APIs reject the admin account type.
 UPDATE users SET account_type = 'admin', is_admin = true WHERE username = 'Maiko';
 
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_unique_idx
+  ON users (lower(email)) WHERE email IS NOT NULL;
+
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_account_type_check;
 ALTER TABLE users ADD CONSTRAINT users_account_type_check
   CHECK (account_type IN ('player', 'admin'));
