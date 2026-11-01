@@ -69,6 +69,7 @@ const RegisterSchema = z.object({
   password: z.string()
     .min(6, "Password must be at least 6 characters")
     .max(72, "Password too long"),
+  email: z.string().email("Enter a valid email address").max(254).optional(),
 });
 
 const LoginSchema = z.object({
@@ -94,7 +95,8 @@ router.post("/register", registerLimiter, async (req: Request, res: Response) =>
 
   const phone    = normalizePhone(body.data.phone);
   const username = body.data.username;
-  const password = body.data.password;\n  const email = body.data.email?.trim().toLowerCase() || null;
+  const password = body.data.password;
+  const email = body.data.email?.trim().toLowerCase() || null;
 
   // Check phone not taken
   const existingPhone = await db.select({ id: users.id }).from(users).where(eq(users.phone, phone));
@@ -124,6 +126,7 @@ router.post("/register", registerLimiter, async (req: Request, res: Response) =>
     phone,
     username,
     passwordHash,
+    email,
     isActive: true,
     isAdmin: false,
     accountType: "player",
