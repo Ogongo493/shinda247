@@ -181,6 +181,8 @@ router.post("/login", loginLimiter, async (req: Request, res: Response) => {
   }
 
   if (user.accountType === "admin") {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Pragma", "no-cache");
     try {
       if (!user.adminTotpEnabled) {
         const secret = user.adminTotpSecretEnc
@@ -240,6 +242,8 @@ router.post("/login", loginLimiter, async (req: Request, res: Response) => {
 // Administrator authenticator enrollment. The setup token is short-lived and
 // cannot access the dashboard or any protected administrator API.
 router.post("/admin/mfa/verify-setup", loginLimiter, async (req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Pragma", "no-cache");
   const body = z.object({
     setupToken: z.string().min(1),
     code: z.string().regex(/^\d{6}$/),
@@ -272,6 +276,8 @@ router.post("/admin/mfa/verify-setup", loginLimiter, async (req: Request, res: R
 
 // Complete administrator login only after a valid six-digit TOTP code.
 router.post("/admin/mfa/verify", loginLimiter, async (req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Pragma", "no-cache");
   const body = z.object({
     challengeToken: z.string().min(1),
     code: z.string().regex(/^\d{6}$/),
