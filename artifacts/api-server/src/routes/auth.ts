@@ -6,7 +6,7 @@ import { eq, ilike } from "drizzle-orm";
 import { z } from "zod";
 import { signJwt, verifyJwt, extractToken, type JwtPayload } from "../lib/jwt";
 import { logger } from "../lib/logger";
-import { createTotpSecret, encryptTotpSecret, decryptTotpSecret, verifyTotp, authenticatorUri } from "../lib/admin-totp";
+import { createTotpSecret, encryptTotpSecret, decryptTotpSecret, verifyTotp, matchingTotpStep, authenticatorUri } from "../lib/admin-totp";
 import rateLimit from "express-rate-limit";
 
 const router: IRouter = Router();
@@ -261,12 +261,19 @@ router.post("/admin/mfa/verify-setup", loginLimiter, async (req: Request, res: R
   }
   try {
     const secret = decryptTotpSecret(account.adminTotpSecretEnc);
-    if (!verifyTotp(secret, body.data.code)) {
-      res.status(401).json({ error: "Incorrect authenticator code." });
+    const matchedStep = matchingTotpStep(secret, body.data.code);
+    if (matchedStep === null || (account.adminTotpLastStep !== null && account.adminTotpLastStep !== undefined && matchedStep <= account.adminTotpLastStep)) {
+      res.status(401).json({ error: "Incorrect or already-used authenticator code." });
       return;
     }
-    await db.update(users).set({ adminTotpEnabled: true, updatedAt: new Date() })
-      .where(eq(users.id, account.id));
+    const enrolled = await db.update(users)
+      .set({ adminTotpEnabled: true, adminTotpLastStep: matchedStep, updatedAt: new Date() })
+      .where(eq(users.id, account.id))
+      .returning({ id: users.id });
+    if (!enrolled.length) {
+      res.status(409).json({ error: "Authenticator code was already used. Wait for a new code and try again." });
+      return;
+    }
     res.json({ success: true, message: "Authenticator enabled. Sign in again to complete administrator verification." });
   } catch (error) {
     logger.error({ error, userId: account.id }, "Administrator MFA enrollment verification failed");
@@ -297,18 +304,27 @@ router.post("/admin/mfa/verify", loginLimiter, async (req: Request, res: Respons
   try {
     const secret = decryptTotpSecret(account.adminTotpSecretEnc);
     const challengeAccepted = await db.transaction(async (tx) => {
+      const [lockedAccount] = await tx.select().from(users)
+        .where(eq(users.id, account.id)).for("update");
       const [challenge] = await tx.select().from(adminMfaChallenges)
         .where(eq(adminMfaChallenges.id, payload.challengeId!)).for("update");
       const tokenHash = crypto.createHash("sha256").update(body.data.challengeToken).digest("hex");
       if (!challenge || challenge.userId !== account.id || challenge.consumedAt ||
           challenge.expiresAt.getTime() <= Date.now() || challenge.attempts >= 5 ||
           challenge.codeHash !== tokenHash) return false;
-      if (!verifyTotp(secret, body.data.code)) {
+      const matchedStep = matchingTotpStep(secret, body.data.code);
+      if (!lockedAccount || !lockedAccount.adminTotpEnabled ||
+          matchedStep === null ||
+          (lockedAccount.adminTotpLastStep !== null && lockedAccount.adminTotpLastStep !== undefined &&
+           matchedStep <= lockedAccount.adminTotpLastStep)) {
         await tx.update(adminMfaChallenges)
           .set({ attempts: challenge.attempts + 1 })
           .where(eq(adminMfaChallenges.id, challenge.id));
         return false;
       }
+      await tx.update(users)
+        .set({ adminTotpLastStep: matchedStep, updatedAt: new Date() })
+        .where(eq(users.id, account.id));
       await tx.update(adminMfaChallenges)
         .set({ consumedAt: new Date() })
         .where(eq(adminMfaChallenges.id, challenge.id));
