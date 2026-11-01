@@ -52,6 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user?.isAdmin || !token) return;
     let timer: number;
+    let lastHeartbeat = 0;
     const expire = () => {
       void fetch("/api/auth/logout", {
         method: "POST",
@@ -65,6 +66,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const resetTimer = () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(expire, 15 * 60 * 1000);
+      if (Date.now() - lastHeartbeat >= 60 * 1000) {
+        lastHeartbeat = Date.now();
+        void fetch("/api/auth/activity", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        }).then(response => {
+          if (!response.ok) expire();
+        }).catch(() => undefined);
+      }
     };
     const events: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "touchstart", "wheel"];
     events.forEach(event => window.addEventListener(event, resetTimer, { passive: true }));
