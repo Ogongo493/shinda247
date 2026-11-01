@@ -432,6 +432,27 @@ router.post("/change-password", requireAuth, async (req: Request, res: Response)
     return;
   }
 
+  // Password changes are also protected by the administrator's short session.
+  if (dbUser.accountType === "admin") {
+    const token = extractToken(req.headers.authorization);
+    const tokenHash = token ? crypto.createHash("sha256").update(token).digest("hex") : "";
+    const [session] = tokenHash
+      ? await db.select().from(adminSessions).where(eq(adminSessions.tokenHash, tokenHash)).limit(1)
+      : [];
+    const now = Date.now();
+    if (!session || session.userId !== dbUser.id || session.revokedAt ||
+        session.expiresAt.getTime() <= now ||
+        now - session.lastActivityAt.getTime() > 15 * 60 * 1000 ||
+        now - session.createdAt.getTime() > 12 * 60 * 60 * 1000) {
+      res.status(401).json({ error: "Administrator session expired. Please sign in again." });
+      return;
+    }
+    await db.update(adminSessions).set({
+      lastActivityAt: new Date(now),
+      expiresAt: new Date(Math.min(now + 15 * 60 * 1000, session.createdAt.getTime() + 12 * 60 * 60 * 1000)),
+    }).where(eq(adminSessions.id, session.id));
+  }
+
   const valid = await verifyPassword(body.data.currentPassword, dbUser.passwordHash);
   if (!valid) {
     res.status(401).json({ error: "Current password is incorrect" });
