@@ -90,6 +90,11 @@ export function matchingTotpStep(secret: string, code: string, now = Date.now())
   return null;
 }
 
+export function isTotpStepFresh(matchedStep: number | null, lastAcceptedStep: number | null | undefined): boolean {
+  return matchedStep !== null &&
+    (lastAcceptedStep === null || lastAcceptedStep === undefined || matchedStep > lastAcceptedStep);
+}
+
 export function verifyTotp(secret: string, code: string, now = Date.now()): boolean {
   return matchingTotpStep(secret, code, now) !== null;
 }
