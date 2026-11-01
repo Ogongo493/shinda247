@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, timestamp, boolean, integer } from 'drizzle-orm/pg-core';
+import { pgTable, serial, varchar, timestamp, boolean, integer, uuid, text, jsonb, bigint } from 'drizzle-orm/pg-core';
 import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
 
 export const users = pgTable('users', {
@@ -8,6 +8,10 @@ export const users = pgTable('users', {
   passwordHash: varchar('password_hash', { length: 255 }),
   isActive:     boolean('is_active').notNull().default(true),
   isAdmin:      boolean('is_admin').notNull().default(false),
+  accountType:  varchar('account_type', { length: 16 }).notNull().default('player'),
+  email:        varchar('email', { length: 254 }),
+  adminTotpSecretEnc: text('admin_totp_secret_enc'),
+  adminTotpEnabled: boolean('admin_totp_enabled').notNull().default(false),
   kycVerified:  boolean('kyc_verified').notNull().default(false),
   createdAt:    timestamp('created_at').notNull().defaultNow(),
   updatedAt:    timestamp('updated_at').notNull().defaultNow(),
