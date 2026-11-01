@@ -6,7 +6,7 @@ import { eq, ilike } from "drizzle-orm";
 import { z } from "zod";
 import { signJwt, verifyJwt, extractToken, type JwtPayload } from "../lib/jwt";
 import { logger } from "../lib/logger";
-import { createTotpSecret, encryptTotpSecret, decryptTotpSecret, verifyTotp, matchingTotpStep, authenticatorUri } from "../lib/admin-totp";
+import { createTotpSecret, encryptTotpSecret, decryptTotpSecret, matchingTotpStep, isTotpStepFresh, authenticatorUri } from "../lib/admin-totp";
 import rateLimit from "express-rate-limit";
 
 const router: IRouter = Router();
@@ -262,7 +262,7 @@ router.post("/admin/mfa/verify-setup", loginLimiter, async (req: Request, res: R
   try {
     const secret = decryptTotpSecret(account.adminTotpSecretEnc);
     const matchedStep = matchingTotpStep(secret, body.data.code);
-    if (matchedStep === null || (account.adminTotpLastStep !== null && account.adminTotpLastStep !== undefined && matchedStep <= account.adminTotpLastStep)) {
+    if (!isTotpStepFresh(matchedStep, account.adminTotpLastStep)) {
       res.status(401).json({ error: "Incorrect or already-used authenticator code." });
       return;
     }
@@ -314,9 +314,7 @@ router.post("/admin/mfa/verify", loginLimiter, async (req: Request, res: Respons
           challenge.codeHash !== tokenHash) return false;
       const matchedStep = matchingTotpStep(secret, body.data.code);
       if (!lockedAccount || !lockedAccount.adminTotpEnabled ||
-          matchedStep === null ||
-          (lockedAccount.adminTotpLastStep !== null && lockedAccount.adminTotpLastStep !== undefined &&
-           matchedStep <= lockedAccount.adminTotpLastStep)) {
+          !isTotpStepFresh(matchedStep, lockedAccount.adminTotpLastStep)) {
         await tx.update(adminMfaChallenges)
           .set({ attempts: challenge.attempts + 1 })
           .where(eq(adminMfaChallenges.id, challenge.id));
