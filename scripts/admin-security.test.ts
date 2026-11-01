@@ -51,6 +51,11 @@ test("authenticator secrets are encrypted at rest and decrypt correctly", () => 
   assert.equal(decryptTotpSecret(encrypted), secret);
 });
 
+test("TOTP matches the RFC 6238 SHA-1 six-digit reference vector", () => {
+  // RFC 6238 test secret, time 59 seconds, 6-digit SHA-1 TOTP.
+  assert.equal(verifyTotp("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", "287082", 59000), true);
+});
+
 test("TOTP accepts a valid six-digit code and rejects invalid codes", () => {
   const secret = createTotpSecret();
   const time = Math.floor(Date.now() / 30000) * 30000 + 15000;
