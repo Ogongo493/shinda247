@@ -32,7 +32,6 @@ let tickInterval: ReturnType<typeof setInterval> | null = null;
 let crashTimeout: ReturnType<typeof setTimeout> | null = null;
 let hashChain: string[] = [];
 let chainIndex = 0;
-let roundMaxPayoutCents = 0;
 
 async function ensureHouseReserve(): Promise<void> {
   await db.transaction(async (tx) => {
@@ -85,7 +84,6 @@ export async function initGameEngine(chain?: string[]): Promise<void> {
 async function startNewRound(): Promise<void> {
   activeBets.clear();
   flyingStartTime = null;
-  roundMaxPayoutCents = 0;
 
   const hash = hashChain[chainIndex % hashChain.length];
   chainIndex++;
@@ -138,13 +136,13 @@ async function closeBetting(gameId: number, hash: string): Promise<void> {
     await tx.update(games).set({
       state: 'flying', bettingCloseAt: new Date(), flyingStartAt: new Date(),
       totalBetsCents: totalPoolCents,
+      riskCeilingCents: maxAllowedPayoutCents,
     }).where(eq(games.id, gameId));
     return { totalPoolCents, maxAllowedPayoutCents };
   });
   if (!transitioned || !currentGame || currentGame.id !== gameId) return;
 
   currentGame.state = 'flying';
-  roundMaxPayoutCents = transitioned.maxAllowedPayoutCents;
   const crashX100 = computeCappedCrashPoint(
     hash, transitioned.totalPoolCents, transitioned.maxAllowedPayoutCents,
   );
@@ -179,7 +177,7 @@ async function crashGame(gameId: number, crashX100: number, elapsedMs: number): 
 
   // The round lock serializes crash settlement with cash-outs.
   const crashed = await db.transaction(async (tx) => {
-    const [game] = await tx.select({ id: games.id, state: games.state })
+    const [game] = await tx.select({ id: games.id, state: games.state, riskCeilingCents: games.riskCeilingCents })
       .from(games).where(eq(games.id, gameId)).for('update');
     if (!game || game.state === 'crashed') return false;
 
@@ -200,7 +198,7 @@ async function crashGame(gameId: number, crashX100: number, elapsedMs: number): 
 
     await tx.update(houseReserve).set({
       balanceCents: balanceAfter,
-      reservedCents: Math.max(0, reserve.reservedCents - roundMaxPayoutCents),
+      reservedCents: Math.max(0, reserve.reservedCents - Number(game.riskCeilingCents ?? 0)),
       updatedAt: new Date(),
     }).where(eq(houseReserve.id, 1));
     if (payoutCents > 0) {
@@ -413,7 +411,7 @@ async function recoverInterruptedGame(gameId: number): Promise<void> {
   // Refunds, bet updates and round recovery commit together to prevent
   // duplicate refunds if the server restarts during recovery.
   await db.transaction(async (tx) => {
-    const [game] = await tx.select({ id: games.id, state: games.state })
+    const [game] = await tx.select({ id: games.id, state: games.state, riskCeilingCents: games.riskCeilingCents })
       .from(games).where(eq(games.id, gameId)).for('update');
     if (!game || game.state === 'crashed') return;
 
@@ -441,7 +439,35 @@ async function recoverInterruptedGame(gameId: number): Promise<void> {
       await tx.update(bets).set({ state: 'refunded' })
         .where(and(eq(bets.id, bet.id), eq(bets.state, 'active')));
     }
-    await tx.update(games).set({ state: 'crashed', forced: true }).where(eq(games.id, gameId));
+    const [settled] = await tx.select({
+      payoutCents: sql<number>`coalesce(sum(case when ${bets.state} = 'cashed_out' then ${bets.payoutCents} else 0 end), 0)`,
+      totalBetsCents: sql<number>`coalesce(sum(${bets.amountCents}), 0)`,
+    }).from(bets).where(eq(bets.gameId, gameId));
+    const payoutCents = Number(settled?.payoutCents ?? 0);
+    const [reserve] = await tx.select().from(houseReserve)
+      .where(eq(houseReserve.id, 1)).for('update');
+    if (!reserve) throw new Error('House reserve is not initialized');
+    const balanceBefore = reserve.balanceCents;
+    const balanceAfter = balanceBefore - payoutCents;
+    if (balanceAfter < 0) throw new Error('House reserve cannot cover interrupted-round payouts');
+
+    await tx.update(houseReserve).set({
+      balanceCents: balanceAfter,
+      reservedCents: Math.max(0, reserve.reservedCents - Number(game.riskCeilingCents ?? 0)),
+      updatedAt: new Date(),
+    }).where(eq(houseReserve.id, 1));
+    if (payoutCents > 0) {
+      await tx.insert(houseReserveEntries).values({
+        type: 'round_payout', amountCents: payoutCents,
+        balanceBeforeCents: balanceBefore, balanceAfterCents: balanceAfter,
+        gameId, description: 'Cash-out payouts settled during recovery for round #' + gameId,
+      });
+    }
+    await tx.update(games).set({
+      state: 'crashed', forced: true, crashedAt: new Date(),
+      totalBetsCents: Number(settled?.totalBetsCents ?? 0),
+      totalPayoutCents: payoutCents,
+    }).where(eq(games.id, gameId));
   });
 }
 
