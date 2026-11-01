@@ -20,7 +20,7 @@ export default function LoginPage() {
 
   const [phone,    setPhone]    = useState("");
   const [password, setPassword] = useState("");
-  const [loading,  setLoading]  = useState(false);
+  const [loading,  setLoading]  = useState(false);\n  const [mfaStage, setMfaStage] = useState<"login" | "setup" | "verify">("login");\n  const [mfaCode, setMfaCode] = useState("");\n  const [setupToken, setSetupToken] = useState("");\n  const [challengeToken, setChallengeToken] = useState("");\n  const [authenticatorSecret, setAuthenticatorSecret] = useState("");
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -54,8 +54,41 @@ export default function LoginPage() {
         </div>
 
         <div className="bg-card border border-border/50 rounded-2xl p-6 space-y-6 shadow-xl">
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div className="space-y-2">
+          {mfaStage === "login" ? (
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Phone Number</label>
+                <Input type="tel" placeholder="0712345678" value={phone} onChange={e => setPhone(e.target.value)} className="h-12 text-base" required />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Password</label>
+                <Input type="password" placeholder="Enter your password" value={password} onChange={e => setPassword(e.target.value)} className="h-12 text-base" required />
+              </div>
+              <Button type="submit" className="w-full h-12 text-base" disabled={loading}>
+                {loading ? "Signing in..." : "Sign In"}
+              </Button>
+            </form>
+          ) : (
+            <form onSubmit={handleMfaSubmit} className="space-y-4">
+              {mfaStage === "setup" ? (
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">Add this key to Google Authenticator, Microsoft Authenticator, or another TOTP app. Keep it private.</p>
+                  <div className="rounded-lg border border-border bg-background p-3 text-sm font-mono break-all select-all">{authenticatorSecret}</div>
+                  <p className="text-xs text-muted-foreground">After adding the key, enter the six-digit code shown by your authenticator app.</p>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Enter the current six-digit code from your authenticator app.</p>
+              )}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Authenticator Code</label>
+                <Input type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" value={mfaCode} onChange={e => setMfaCode(e.target.value.replace(/\\D/g, "").slice(0, 6))} className="h-12 text-center text-xl tracking-[0.4em]" required />
+              </div>
+              <Button type="submit" className="w-full h-12 text-base" disabled={loading || mfaCode.length !== 6}>
+                {loading ? "Verifying..." : mfaStage === "setup" ? "Enable Authenticator" : "Verify and Sign In"}
+              </Button>
+              <button type="button" onClick={() => { setMfaStage("login"); setMfaCode(""); }} className="w-full text-sm text-muted-foreground hover:underline">Back to sign in</button>
+            </form>
+          )}
               <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Phone Number</label>
               <Input
                 type="tel"
@@ -77,10 +110,7 @@ export default function LoginPage() {
                 required
               />
             </div>
-            <Button type="submit" className="w-full h-12 text-base" disabled={loading}>
-              {loading ? "Signing in..." : "Sign In"}
-            </Button>
-          </form>
+
 
           <div className="border-t border-border/50 pt-4 text-center">
             <p className="text-sm text-muted-foreground">
