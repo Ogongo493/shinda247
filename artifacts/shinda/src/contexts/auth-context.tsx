@@ -52,6 +52,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user?.isAdmin || !token) return;
     let timer: number;
     const expire = () => {
+      void fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => undefined);
       setToken(null);
       setUser(null);
       localStorage.removeItem("shinda_token");
@@ -78,6 +82,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   function logout() {
+    if (token) {
+      void fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => undefined);
+    }
     setToken(null);
     setUser(null);
     localStorage.removeItem("shinda_token");
