@@ -63,6 +63,7 @@ export function getActiveBets(): ActiveBet[] {
 }
 
 export async function initGameEngine(chain?: string[]): Promise<void> {
+  await ensureHouseReserve();
   hashChain = chain ?? generateHashChain(1000);
   chainIndex = 0;
 
@@ -84,6 +85,7 @@ export async function initGameEngine(chain?: string[]): Promise<void> {
 async function startNewRound(): Promise<void> {
   activeBets.clear();
   flyingStartTime = null;
+  roundMaxPayoutCents = 0;
 
   const hash = hashChain[chainIndex % hashChain.length];
   chainIndex++;
