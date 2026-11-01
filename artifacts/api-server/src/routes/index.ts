@@ -5,6 +5,7 @@ import authRouter, { requireAuth } from "./auth";
 import mpesaRouter from "./mpesa";
 import adminRouter from "./admin";
 import { requireAdminRole, requirePlayerRole } from "../middleware/roles";
+import { auditAdminMutation } from "../middleware/admin-audit";
 
 const router: IRouter = Router();
 
@@ -21,7 +22,7 @@ router.use("/mpesa/deposit", requireAuth, requirePlayerRole);
 router.use("/mpesa/withdraw", requireAuth, requirePlayerRole);
 
 router.use("/mpesa", mpesaRouter);
-router.use("/admin", requireAuth, requireAdminRole, adminRouter);
+router.use("/admin", requireAuth, requireAdminRole, auditAdminMutation, adminRouter);
 router.use(gameRouter);
 
 export default router;
