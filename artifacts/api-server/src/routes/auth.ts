@@ -333,6 +333,38 @@ router.post("/admin/mfa/verify", loginLimiter, async (req: Request, res: Respons
   }
 });
 
+router.post("/activity", requireAuth, async (req: Request, res: Response) => {
+  const user = (req as any).user as JwtPayload;
+  const [account] = await db.select({ accountType: users.accountType, isActive: users.isActive })
+    .from(users).where(eq(users.id, user.sub));
+  if (!account || !account.isActive) {
+    res.status(403).json({ error: "Account is unavailable" });
+    return;
+  }
+  if (account.accountType !== "admin") {
+    res.json({ success: true });
+    return;
+  }
+  const token = extractToken(req.headers.authorization);
+  const tokenHash = token ? crypto.createHash("sha256").update(token).digest("hex") : "";
+  const [session] = tokenHash
+    ? await db.select().from(adminSessions).where(eq(adminSessions.tokenHash, tokenHash)).limit(1)
+    : [];
+  const now = Date.now();
+  if (!session || session.userId !== user.sub || session.revokedAt ||
+      session.expiresAt.getTime() <= now ||
+      now - session.lastActivityAt.getTime() > 15 * 60 * 1000 ||
+      now - session.createdAt.getTime() > 12 * 60 * 60 * 1000) {
+    res.status(401).json({ error: "Administrator session expired. Please sign in again." });
+    return;
+  }
+  await db.update(adminSessions).set({
+    lastActivityAt: new Date(now),
+    expiresAt: new Date(Math.min(now + 15 * 60 * 1000, session.createdAt.getTime() + 12 * 60 * 60 * 1000)),
+  }).where(eq(adminSessions.id, session.id));
+  res.json({ success: true });
+});
+
 router.post("/logout", requireAuth, async (req: Request, res: Response) => {
   const user = (req as any).user as JwtPayload;
   const token = extractToken(req.headers.authorization);
