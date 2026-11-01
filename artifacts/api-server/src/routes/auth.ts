@@ -1,11 +1,12 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import crypto from "crypto";
 import { db } from "@workspace/db";
-import { users, wallets } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { users, wallets, adminSessions, adminMfaChallenges } from "@workspace/db";
+import { eq, ilike } from "drizzle-orm";
 import { z } from "zod";
 import { signJwt, verifyJwt, extractToken, type JwtPayload } from "../lib/jwt";
 import { logger } from "../lib/logger";
+import { createTotpSecret, encryptTotpSecret, decryptTotpSecret, matchingTotpStep, isTotpStepFresh, authenticatorUri } from "../lib/admin-totp";
 import rateLimit from "express-rate-limit";
 
 const router: IRouter = Router();
@@ -68,6 +69,7 @@ const RegisterSchema = z.object({
   password: z.string()
     .min(6, "Password must be at least 6 characters")
     .max(72, "Password too long"),
+  email: z.string().email("Enter a valid email address").max(254).optional(),
 });
 
 const LoginSchema = z.object({
@@ -94,6 +96,7 @@ router.post("/register", registerLimiter, async (req: Request, res: Response) =>
   const phone    = normalizePhone(body.data.phone);
   const username = body.data.username;
   const password = body.data.password;
+  const email = body.data.email?.trim().toLowerCase() || null;
 
   // Check phone not taken
   const existingPhone = await db.select({ id: users.id }).from(users).where(eq(users.phone, phone));
@@ -109,13 +112,24 @@ router.post("/register", registerLimiter, async (req: Request, res: Response) =>
     return;
   }
 
+  if (email) {
+    const [existingEmail] = await db.select({ id: users.id }).from(users).where(ilike(users.email, email));
+    if (existingEmail) {
+      res.status(409).json({ error: "Email address already registered" });
+      return;
+    }
+  }
+
   const passwordHash = await hashPassword(password);
 
   const [user] = await db.insert(users).values({
     phone,
     username,
     passwordHash,
+    email,
     isActive: true,
+    isAdmin: false,
+    accountType: "player",
   }).returning();
 
   await db.insert(wallets).values({ userId: user.id, balanceCents: 0 });
@@ -131,7 +145,7 @@ router.post("/register", registerLimiter, async (req: Request, res: Response) =>
 
   res.status(201).json({
     token,
-    user: { id: user.id, phone: user.phone, username: user.username, isAdmin: user.isAdmin },
+    user: { id: user.id, phone: user.phone, username: user.username, email: user.email, isAdmin: user.isAdmin },
   });
 });
 
@@ -142,9 +156,10 @@ router.post("/login", loginLimiter, async (req: Request, res: Response) => {
     return;
   }
 
-  const phone = normalizePhone(body.data.phone);
-
-  const [user] = await db.select().from(users).where(eq(users.phone, phone));
+  const identifier = body.data.phone.trim();
+  const [user] = identifier.includes("@")
+    ? await db.select().from(users).where(ilike(users.email, identifier.toLowerCase()))
+    : await db.select().from(users).where(eq(users.phone, normalizePhone(identifier)));
 
   // Generic error — don't reveal whether phone exists
   const INVALID = "Invalid phone number or password";
@@ -165,17 +180,220 @@ router.post("/login", loginLimiter, async (req: Request, res: Response) => {
     return;
   }
 
+  if (user.accountType === "admin") {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Pragma", "no-cache");
+    try {
+      if (!user.adminTotpEnabled) {
+        const secret = user.adminTotpSecretEnc
+          ? decryptTotpSecret(user.adminTotpSecretEnc)
+          : createTotpSecret();
+        if (!user.adminTotpSecretEnc) {
+          await db.update(users).set({ adminTotpSecretEnc: encryptTotpSecret(secret) })
+            .where(eq(users.id, user.id));
+        }
+        const setupToken = signJwt({
+          sub: user.id, phone: user.phone, username: user.username,
+          isAdmin: true, purpose: "admin_mfa_setup",
+        }, 10 * 60);
+        res.json({
+          mfaSetupRequired: true,
+          setupToken,
+          authenticatorSecret: secret,
+          authenticatorUri: authenticatorUri(secret, user.username),
+          user: { id: user.id, username: user.username, isAdmin: true },
+        });
+        return;
+      }
+      const challengeId = crypto.randomUUID();
+      const challengeToken = signJwt({
+        sub: user.id, phone: user.phone, username: user.username,
+        isAdmin: true, purpose: "admin_mfa_challenge", challengeId,
+      }, 5 * 60);
+      await db.insert(adminMfaChallenges).values({
+        id: challengeId,
+        userId: user.id,
+        codeHash: crypto.createHash("sha256").update(challengeToken).digest("hex"),
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+      });
+      res.json({ mfaRequired: true, challengeToken });
+      return;
+    } catch (error) {
+      logger.error({ error, userId: user.id }, "Administrator MFA setup unavailable");
+      res.status(503).json({ error: "Administrator MFA is not configured on the server yet." });
+      return;
+    }
+  }
+
   const token = signJwt({
-    sub:      user.id,
-    phone:    user.phone,
+    sub: user.id,
+    phone: user.phone,
     username: user.username,
-    isAdmin:  user.isAdmin,
+    isAdmin: false,
   });
 
   res.json({
     token,
-    user: { id: user.id, phone: user.phone, username: user.username, isAdmin: user.isAdmin },
+    user: { id: user.id, phone: user.phone, username: user.username, email: user.email, isAdmin: false },
   });
+});
+
+
+// Administrator authenticator enrollment. The setup token is short-lived and
+// cannot access the dashboard or any protected administrator API.
+router.post("/admin/mfa/verify-setup", loginLimiter, async (req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Pragma", "no-cache");
+  const body = z.object({
+    setupToken: z.string().min(1),
+    code: z.string().regex(/^\d{6}$/),
+  }).safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Enter the six-digit authenticator code." }); return; }
+  const payload = verifyJwt(body.data.setupToken);
+  if (!payload || payload.purpose !== "admin_mfa_setup") {
+    res.status(401).json({ error: "Administrator setup session expired. Sign in again." });
+    return;
+  }
+  const [account] = await db.select().from(users).where(eq(users.id, payload.sub));
+  if (!account || !account.isActive || account.accountType !== "admin" || account.adminTotpEnabled || !account.adminTotpSecretEnc) {
+    res.status(403).json({ error: "Administrator authenticator enrollment is not available." });
+    return;
+  }
+  try {
+    const secret = decryptTotpSecret(account.adminTotpSecretEnc);
+    const matchedStep = matchingTotpStep(secret, body.data.code);
+    if (!isTotpStepFresh(matchedStep, account.adminTotpLastStep)) {
+      res.status(401).json({ error: "Incorrect or already-used authenticator code." });
+      return;
+    }
+    const enrolled = await db.update(users)
+      .set({ adminTotpEnabled: true, adminTotpLastStep: matchedStep, updatedAt: new Date() })
+      .where(eq(users.id, account.id))
+      .returning({ id: users.id });
+    if (!enrolled.length) {
+      res.status(409).json({ error: "Authenticator code was already used. Wait for a new code and try again." });
+      return;
+    }
+    res.json({ success: true, message: "Authenticator enabled. Sign in again to complete administrator verification." });
+  } catch (error) {
+    logger.error({ error, userId: account.id }, "Administrator MFA enrollment verification failed");
+    res.status(503).json({ error: "Could not verify the authenticator. Check server MFA configuration." });
+  }
+});
+
+// Complete administrator login only after a valid six-digit TOTP code.
+router.post("/admin/mfa/verify", loginLimiter, async (req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Pragma", "no-cache");
+  const body = z.object({
+    challengeToken: z.string().min(1),
+    code: z.string().regex(/^\d{6}$/),
+  }).safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Enter the six-digit authenticator code." }); return; }
+  const payload = verifyJwt(body.data.challengeToken);
+  if (!payload || payload.purpose !== "admin_mfa_challenge") {
+    res.status(401).json({ error: "Administrator verification expired. Sign in again." });
+    return;
+  }
+  const [account] = await db.select().from(users).where(eq(users.id, payload.sub));
+  if (!account || !account.isActive || account.accountType !== "admin" ||
+      !account.adminTotpEnabled || !account.adminTotpSecretEnc || !payload.challengeId) {
+    res.status(403).json({ error: "Administrator account is not eligible to sign in." });
+    return;
+  }
+  try {
+    const secret = decryptTotpSecret(account.adminTotpSecretEnc);
+    const challengeAccepted = await db.transaction(async (tx) => {
+      const [lockedAccount] = await tx.select().from(users)
+        .where(eq(users.id, account.id)).for("update");
+      const [challenge] = await tx.select().from(adminMfaChallenges)
+        .where(eq(adminMfaChallenges.id, payload.challengeId!)).for("update");
+      const tokenHash = crypto.createHash("sha256").update(body.data.challengeToken).digest("hex");
+      if (!challenge || challenge.userId !== account.id || challenge.consumedAt ||
+          challenge.expiresAt.getTime() <= Date.now() || challenge.attempts >= 5 ||
+          challenge.codeHash !== tokenHash) return false;
+      const matchedStep = matchingTotpStep(secret, body.data.code);
+      if (!lockedAccount || !lockedAccount.adminTotpEnabled ||
+          !isTotpStepFresh(matchedStep, lockedAccount.adminTotpLastStep)) {
+        await tx.update(adminMfaChallenges)
+          .set({ attempts: challenge.attempts + 1 })
+          .where(eq(adminMfaChallenges.id, challenge.id));
+        return false;
+      }
+      await tx.update(users)
+        .set({ adminTotpLastStep: matchedStep, updatedAt: new Date() })
+        .where(eq(users.id, account.id));
+      await tx.update(adminMfaChallenges)
+        .set({ consumedAt: new Date() })
+        .where(eq(adminMfaChallenges.id, challenge.id));
+      return true;
+    });
+    if (!challengeAccepted) {
+      res.status(401).json({ error: "Invalid, expired, or already-used authenticator challenge." });
+      return;
+    }
+    const token = signJwt({
+      sub: account.id, phone: account.phone, username: account.username, isAdmin: true,
+    }, 12 * 60 * 60);
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const now = new Date();
+    await db.insert(adminSessions).values({
+      userId: account.id,
+      tokenHash,
+      lastActivityAt: now,
+      expiresAt: new Date(now.getTime() + 15 * 60 * 1000),
+    });
+    res.json({
+      token,
+      user: { id: account.id, phone: account.phone, username: account.username, isAdmin: true },
+    });
+  } catch (error) {
+    logger.error({ error, userId: account.id }, "Administrator MFA login failed");
+    res.status(503).json({ error: "Administrator sign-in is temporarily unavailable." });
+  }
+});
+
+router.post("/activity", requireAuth, async (req: Request, res: Response) => {
+  const user = (req as any).user as JwtPayload;
+  const [account] = await db.select({ accountType: users.accountType, isActive: users.isActive })
+    .from(users).where(eq(users.id, user.sub));
+  if (!account || !account.isActive) {
+    res.status(403).json({ error: "Account is unavailable" });
+    return;
+  }
+  if (account.accountType !== "admin") {
+    res.json({ success: true });
+    return;
+  }
+  const token = extractToken(req.headers.authorization);
+  const tokenHash = token ? crypto.createHash("sha256").update(token).digest("hex") : "";
+  const [session] = tokenHash
+    ? await db.select().from(adminSessions).where(eq(adminSessions.tokenHash, tokenHash)).limit(1)
+    : [];
+  const now = Date.now();
+  if (!session || session.userId !== user.sub || session.revokedAt ||
+      session.expiresAt.getTime() <= now ||
+      now - session.lastActivityAt.getTime() > 15 * 60 * 1000 ||
+      now - session.createdAt.getTime() > 12 * 60 * 60 * 1000) {
+    res.status(401).json({ error: "Administrator session expired. Please sign in again." });
+    return;
+  }
+  await db.update(adminSessions).set({
+    lastActivityAt: new Date(now),
+    expiresAt: new Date(Math.min(now + 15 * 60 * 1000, session.createdAt.getTime() + 12 * 60 * 60 * 1000)),
+  }).where(eq(adminSessions.id, session.id));
+  res.json({ success: true });
+});
+
+router.post("/logout", requireAuth, async (req: Request, res: Response) => {
+  const user = (req as any).user as JwtPayload;
+  const token = extractToken(req.headers.authorization);
+  if (token && user.isAdmin) {
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    await db.update(adminSessions).set({ revokedAt: new Date() })
+      .where(eq(adminSessions.tokenHash, tokenHash));
+  }
+  res.json({ success: true });
 });
 
 router.get("/me", requireAuth, async (req: Request, res: Response) => {
@@ -185,7 +403,33 @@ router.get("/me", requireAuth, async (req: Request, res: Response) => {
     res.status(404).json({ error: "User not found" });
     return;
   }
-  res.json({ id: dbUser.id, phone: dbUser.phone, username: dbUser.username, isAdmin: dbUser.isAdmin });
+  if (dbUser.accountType === "admin") {
+    const token = extractToken(req.headers.authorization);
+    const tokenHash = token ? crypto.createHash("sha256").update(token).digest("hex") : "";
+    const [session] = tokenHash
+      ? await db.select().from(adminSessions).where(eq(adminSessions.tokenHash, tokenHash)).limit(1)
+      : [];
+    const now = Date.now();
+    if (!session || session.userId !== dbUser.id || session.revokedAt ||
+        session.expiresAt.getTime() <= now ||
+        now - session.lastActivityAt.getTime() > 15 * 60 * 1000 ||
+        now - session.createdAt.getTime() > 12 * 60 * 60 * 1000) {
+      res.status(401).json({ error: "Administrator session expired. Please sign in again." });
+      return;
+    }
+    await db.update(adminSessions).set({
+      lastActivityAt: new Date(now),
+      expiresAt: new Date(Math.min(now + 15 * 60 * 1000, session.createdAt.getTime() + 12 * 60 * 60 * 1000)),
+    }).where(eq(adminSessions.id, session.id));
+  }
+  res.json({
+    id: dbUser.id,
+    phone: dbUser.phone,
+    username: dbUser.username,
+    email: dbUser.email,
+    isAdmin: dbUser.accountType === "admin",
+    accountType: dbUser.accountType,
+  });
 });
 
 
@@ -206,6 +450,27 @@ router.post("/change-password", requireAuth, async (req: Request, res: Response)
   if (!dbUser || !dbUser.passwordHash) {
     res.status(404).json({ error: "User not found" });
     return;
+  }
+
+  // Password changes are also protected by the administrator's short session.
+  if (dbUser.accountType === "admin") {
+    const token = extractToken(req.headers.authorization);
+    const tokenHash = token ? crypto.createHash("sha256").update(token).digest("hex") : "";
+    const [session] = tokenHash
+      ? await db.select().from(adminSessions).where(eq(adminSessions.tokenHash, tokenHash)).limit(1)
+      : [];
+    const now = Date.now();
+    if (!session || session.userId !== dbUser.id || session.revokedAt ||
+        session.expiresAt.getTime() <= now ||
+        now - session.lastActivityAt.getTime() > 15 * 60 * 1000 ||
+        now - session.createdAt.getTime() > 12 * 60 * 60 * 1000) {
+      res.status(401).json({ error: "Administrator session expired. Please sign in again." });
+      return;
+    }
+    await db.update(adminSessions).set({
+      lastActivityAt: new Date(now),
+      expiresAt: new Date(Math.min(now + 15 * 60 * 1000, session.createdAt.getTime() + 12 * 60 * 60 * 1000)),
+    }).where(eq(adminSessions.id, session.id));
   }
 
   const valid = await verifyPassword(body.data.currentPassword, dbUser.passwordHash);

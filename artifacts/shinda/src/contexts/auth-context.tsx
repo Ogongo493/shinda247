@@ -4,6 +4,7 @@ interface AuthUser {
   id: number;
   phone: string;
   username: string;
+  email?: string | null;
   isAdmin: boolean;
 }
 
@@ -46,6 +47,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => { active = false; };
   }, []);
 
+  // Enforce immediate browser logout after 15 minutes without admin activity.
+  // The API independently checks the same timeout on every protected request.
+  useEffect(() => {
+    if (!user?.isAdmin || !token) return;
+    let timer: number;
+    let lastHeartbeat = 0;
+    const expire = () => {
+      void fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token },
+      }).catch(() => undefined);
+      setToken(null);
+      setUser(null);
+      localStorage.removeItem("shinda_token");
+      localStorage.removeItem("shinda_user");
+    };
+    const resetTimer = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(expire, 15 * 60 * 1000);
+      if (Date.now() - lastHeartbeat >= 60 * 1000) {
+        lastHeartbeat = Date.now();
+        void fetch("/api/auth/activity", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        }).then(response => {
+          if (!response.ok) expire();
+        }).catch(() => undefined);
+      }
+    };
+    const events: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "touchstart", "wheel"];
+    events.forEach(event => window.addEventListener(event, resetTimer, { passive: true }));
+    resetTimer();
+    return () => {
+      window.clearTimeout(timer);
+      events.forEach(event => window.removeEventListener(event, resetTimer));
+    };
+  }, [user?.isAdmin, token]);
+
   function login(newToken: string, newUser: AuthUser) {
     setToken(newToken);
     setUser(newUser);
@@ -54,6 +93,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   function logout() {
+    if (token) {
+      void fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => undefined);
+    }
     setToken(null);
     setUser(null);
     localStorage.removeItem("shinda_token");

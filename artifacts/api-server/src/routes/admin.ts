@@ -23,18 +23,28 @@ async function requireAdmin(req: Request, res: Response, next: any): Promise<voi
 }
 
 router.get("/stats", requireAuth, requireAdmin, async (_req: Request, res: Response) => {
-  const [playerCount] = await db.select({ count: count() }).from(users);
+  const [playerCount] = await db.select({ count: count() }).from(users).where(eq(users.accountType, "player"));
   const [gameCount] = await db.select({ count: count() }).from(games);
   const [totalDeposited] = await db
     .select({ total: sum(wallets.totalDeposited) })
-    .from(wallets);
+    .from(wallets)
+    .innerJoin(users, eq(wallets.userId, users.id))
+    .where(eq(users.accountType, "player"));
   const [totalWithdrawn] = await db
     .select({ total: sum(wallets.totalWithdrawn) })
-    .from(wallets);
+    .from(wallets)
+    .innerJoin(users, eq(wallets.userId, users.id))
+    .where(eq(users.accountType, "player"));
   const [totalBalance] = await db
     .select({ total: sum(wallets.balanceCents) })
-    .from(wallets);
-  const [betCount] = await db.select({ count: count() }).from(bets);
+    .from(wallets)
+    .innerJoin(users, eq(wallets.userId, users.id))
+    .where(eq(users.accountType, "player"));
+  const [betCount] = await db
+    .select({ count: count() })
+    .from(bets)
+    .innerJoin(users, eq(bets.userId, users.id))
+    .where(eq(users.accountType, "player"));
 
   res.json({
     players: playerCount.count,
@@ -66,6 +76,7 @@ router.get("/players", requireAuth, requireAdmin, async (req: Request, res: Resp
     })
     .from(users)
     .leftJoin(wallets, eq(users.id, wallets.userId))
+    .where(eq(users.accountType, "player"))
     .orderBy(desc(users.createdAt))
     .limit(limit)
     .offset(offset);
@@ -98,7 +109,8 @@ router.get("/transactions", requireAuth, requireAdmin, async (req: Request, res:
       createdAt: transactions.createdAt,
     })
     .from(transactions)
-    .leftJoin(users, eq(transactions.userId, users.id))
+    .innerJoin(users, eq(transactions.userId, users.id))
+    .where(eq(users.accountType, "player"))
     .orderBy(desc(transactions.createdAt))
     .limit(limit)
     .offset(offset);
@@ -131,8 +143,8 @@ router.get("/games", requireAuth, requireAdmin, async (req: Request, res: Respon
 
 router.patch("/players/:id/toggle-active", requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const userId = parseInt(String(req.params.id));
-  const [user] = await db.select({ isActive: users.isActive }).from(users).where(eq(users.id, userId));
-  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  const [user] = await db.select({ isActive: users.isActive, accountType: users.accountType }).from(users).where(eq(users.id, userId));
+  if (!user || user.accountType !== "player") { res.status(404).json({ error: "Player not found" }); return; }
   const [updated] = await db
     .update(users)
     .set({ isActive: !user.isActive })
@@ -141,16 +153,8 @@ router.patch("/players/:id/toggle-active", requireAuth, requireAdmin, async (req
   res.json(updated);
 });
 
-router.patch("/players/:id/toggle-admin", requireAuth, requireAdmin, async (req: Request, res: Response) => {
-  const userId = parseInt(String(req.params.id));
-  const [user] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq(users.id, userId));
-  if (!user) { res.status(404).json({ error: "User not found" }); return; }
-  const [updated] = await db
-    .update(users)
-    .set({ isAdmin: !user.isAdmin })
-    .where(eq(users.id, userId))
-    .returning({ id: users.id, isAdmin: users.isAdmin });
-  res.json(updated);
+router.patch("/players/:id/toggle-admin", requireAuth, requireAdmin, async (_req: Request, res: Response) => {
+  res.status(403).json({ error: "Administrator roles can only be changed through the controlled account-provisioning process." });
 });
 
 

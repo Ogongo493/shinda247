@@ -24,12 +24,14 @@ export interface JwtPayload {
   isAdmin: boolean;
   iat: number;
   exp: number;
+  purpose?: "admin_mfa_setup" | "admin_mfa_challenge";
+  challengeId?: string;
 }
 
-export function signJwt(payload: Omit<JwtPayload, "iat" | "exp">): string {
+export function signJwt(payload: Omit<JwtPayload, "iat" | "exp">, expiresInSeconds = JWT_EXPIRY_SECONDS): string {
   const header = base64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
   const now = Math.floor(Date.now() / 1000);
-  const body = base64url(JSON.stringify({ ...payload, iat: now, exp: now + JWT_EXPIRY_SECONDS }));
+  const body = base64url(JSON.stringify({ ...payload, iat: now, exp: now + expiresInSeconds }));
   const sig = base64url(
     crypto.createHmac("sha256", JWT_SECRET).update(`${header}.${body}`).digest()
   );
