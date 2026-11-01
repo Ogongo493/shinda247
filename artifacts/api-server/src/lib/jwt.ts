@@ -24,7 +24,7 @@ export interface JwtPayload {
   isAdmin: boolean;
   iat: number;
   exp: number;
-  purpose?: "admin_mfa_setup" | "admin_mfa_challenge";
+  purpose?: "admin_mfa_setup" | "admin_mfa_challenge";\n  challengeId?: string;
 }
 
 export function signJwt(payload: Omit<JwtPayload, "iat" | "exp">, expiresInSeconds = JWT_EXPIRY_SECONDS): string {
