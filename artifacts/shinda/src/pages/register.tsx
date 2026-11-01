@@ -19,6 +19,7 @@ export default function RegisterPage() {
   const { toast } = useToast();
 
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [phone,    setPhone]    = useState("");
   const [password, setPassword] = useState("");
   const [confirm,  setConfirm]  = useState("");
@@ -41,7 +42,7 @@ export default function RegisterPage() {
       const res = await fetch("/api/auth/register", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ username, phone: normalizePhone(phone), password }),
+        body:    JSON.stringify({ username, email: email.trim() || undefined, phone: normalizePhone(phone), password }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -81,6 +82,17 @@ export default function RegisterPage() {
                 pattern="[a-zA-Z0-9_]+"
                 title="Letters, numbers, and underscores only"
                 required
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Email Address (optional)</label>
+              <Input
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                className="h-12 text-base"
+                autoComplete="email"
               />
             </div>
             <div className="space-y-2">
