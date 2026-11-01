@@ -11,7 +11,7 @@ UPDATE users SET account_type = CASE WHEN is_admin THEN 'admin' ELSE 'player' EN
 
 -- The owner explicitly authorized converting the existing Maiko account to admin-only.
 -- Keep the account and wallet history; player APIs reject the admin account type.
-UPDATE users SET account_type = 'admin', is_admin = true WHERE username = 'Maiko';
+UPDATE users SET account_type = 'admin', is_admin = true, is_active = false WHERE username = 'Maiko';
 
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_unique_idx
   ON users (lower(email)) WHERE email IS NOT NULL;
