@@ -42,3 +42,6 @@ SELECT 'seed', 100000, 0, 100000, 'Initial KES 1,000 house reserve seed'
 WHERE NOT EXISTS (
   SELECT 1 FROM house_reserve_entries WHERE type = 'seed'
 );
+
+-- Persist each round's reserve hold so crash/restart recovery can release it safely.
+ALTER TABLE games ADD COLUMN IF NOT EXISTS risk_ceiling_cents bigint;
