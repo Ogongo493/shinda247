@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
 import { db, users, adminSessions } from "@workspace/db";
-import { eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { extractToken } from "../lib/jwt";
 
 const ADMIN_IDLE_MS = 15 * 60 * 1000;
