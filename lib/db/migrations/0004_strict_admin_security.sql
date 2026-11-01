@@ -101,7 +101,7 @@ BEGIN
   IF target_user_id IS NOT NULL AND EXISTS (
     SELECT 1 FROM users WHERE id = target_user_id AND account_type = 'admin'
   ) THEN
-    IF TG_TABLE_NAME = 'transactions' AND NEW.type::text NOT IN ('deposit', 'withdrawal', 'bet') THEN
+    IF TG_TABLE_NAME = 'transactions' AND coalesce(to_jsonb(NEW)->>'type', '') NOT IN ('deposit', 'withdrawal', 'bet') THEN
       RETURN NEW;
     END IF;
     RAISE EXCEPTION 'Administrator accounts cannot initiate new player financial or betting activity';
