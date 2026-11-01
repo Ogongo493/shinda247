@@ -45,3 +45,6 @@ jobs:
 
       - name: Test deterministic game RNG and crash calculations
         run: node --experimental-strip-types --test scripts/game-rng.test.ts
+
+      - name: Test house-risk multiplier ceiling
+        run: pnpm --filter @workspace/db test:risk
