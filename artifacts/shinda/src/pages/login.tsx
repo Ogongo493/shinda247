@@ -37,7 +37,7 @@ export default function LoginPage() {
         return;
       }
       login(data.token, data.user);
-      navigate("/");
+      navigate(data.user?.isAdmin ? "/admin" : "/");
     } catch {
       toast({ title: "Error", description: "Network error. Please try again.", variant: "destructive" });
     } finally {

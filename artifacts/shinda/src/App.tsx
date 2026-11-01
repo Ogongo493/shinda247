@@ -40,10 +40,18 @@ function AdminRoute({ component: Component }: { component: React.ComponentType }
   return <Component />;
 }
 
+function HomeRoute() {
+  const { user, isLoading } = useAuth();
+  if (isLoading) return <div className="min-h-screen bg-background flex items-center justify-center"><div className="text-muted-foreground">Loading...</div></div>;
+  if (!user) return <Redirect to="/login" />;
+  if (user.isAdmin) return <Redirect to="/admin" />;
+  return <Home />;
+}
+
 function GuestRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
   if (isLoading) return null;
-  if (user) return <Redirect to="/" />;
+  if (user) return <Redirect to={user.isAdmin ? "/admin" : "/"} />;
   return <Component />;
 }
 
@@ -61,7 +69,7 @@ function Router() {
       <Route path="/login" component={() => <GuestRoute component={LoginPage} />} />
       <Route path="/register" component={() => <GuestRoute component={RegisterPage} />} />
       <Route path="/admin" component={() => <AdminRoute component={AdminPage} />} />
-      <Route path="/" component={() => <ProtectedRoute component={Home} />} />
+      <Route path="/" component={HomeRoute} />
       <Route path="/history" component={() => <ProtectedRoute component={HistoryPage} />} />
       <Route path="/players" component={() => <ProtectedRoute component={PlayersPage} />} />
       <Route path="/notifications" component={() => <ProtectedRoute component={NotificationsPage} />} />
