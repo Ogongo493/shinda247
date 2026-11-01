@@ -1,19 +1,25 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
-import { users, wallets, transactions, games, bets, houseReserve, houseReserveEntries } from "@workspace/db";
+import { users, wallets, transactions, games, bets, houseReserve, houseReserveEntries, gameControl } from "@workspace/db";
 import { eq, desc, sql, count, sum } from "drizzle-orm";
 import { requireAuth } from "./auth";
 import type { JwtPayload } from "../lib/jwt";
+import { setGamePaused } from "../lib/gameEngine";
 
 const router: IRouter = Router();
 
-function requireAdmin(req: Request, res: Response, next: any): void {
-  const user = (req as any).user as JwtPayload;
-  if (!user?.isAdmin) {
-    res.status(403).json({ error: "Admin access required" });
-    return;
-  }
-  next();
+async function requireAdmin(req: Request, res: Response, next: any): Promise<void> {
+  try {
+    const user = (req as any).user as JwtPayload;
+    if (!user?.sub) { res.status(403).json({ error: "Admin access required" }); return; }
+    const [account] = await db.select({ isAdmin: users.isAdmin, isActive: users.isActive })
+      .from(users).where(eq(users.id, user.sub));
+    if (!account?.isAdmin || !account.isActive) {
+      res.status(403).json({ error: "Admin access required" });
+      return;
+    }
+    next();
+  } catch (error) { next(error); }
 }
 
 router.get("/stats", requireAuth, requireAdmin, async (_req: Request, res: Response) => {
@@ -228,6 +234,26 @@ router.get("/house-reserve/ledger", requireAuth, requireAdmin, async (_req: Requ
     balanceBeforeKes: row.balanceBeforeCents / 100,
     balanceAfterKes: row.balanceAfterCents / 100,
   })));
+});
+
+router.get("/game-control", requireAuth, requireAdmin, async (_req: Request, res: Response) => {
+  const [control] = await db.select().from(gameControl).where(eq(gameControl.id, 1));
+  res.json({ paused: control?.isPaused ?? false, reason: control?.reason ?? null, updatedAt: control?.updatedAt?.toISOString() ?? null });
+});
+
+router.post("/game-control", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const user = (req as any).user as JwtPayload;
+  const paused = req.body?.paused;
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim().slice(0, 250) : "";
+  if (typeof paused !== "boolean") { res.status(400).json({ error: "paused must be true or false" }); return; }
+  const [existing] = await db.select({ id: gameControl.id }).from(gameControl).where(eq(gameControl.id, 1));
+  if (existing) {
+    await db.update(gameControl).set({ isPaused: paused, reason: paused ? (reason || "Paused by administrator") : null, updatedBy: user.sub, updatedAt: new Date() }).where(eq(gameControl.id, 1));
+  } else {
+    await db.insert(gameControl).values({ id: 1, isPaused: paused, reason: paused ? (reason || "Paused by administrator") : null, updatedBy: user.sub });
+  }
+  setGamePaused(paused);
+  res.json({ success: true, paused, reason: paused ? (reason || "Paused by administrator") : null });
 });
 
 export default router;
