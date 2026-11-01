@@ -32,6 +32,14 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   return <Component />;
 }
 
+function PlayerRoute({ component: Component }: { component: React.ComponentType }) {
+  const { user, isLoading } = useAuth();
+  if (isLoading) return <div className="min-h-screen bg-background flex items-center justify-center"><div className="text-muted-foreground">Checking player access...</div></div>;
+  if (!user) return <Redirect to="/login" />;
+  if (user.isAdmin) return <Redirect to="/admin" />;
+  return <Component />;
+}
+
 function AdminRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
   if (isLoading) return <div className="min-h-screen bg-background flex items-center justify-center"><div className="text-muted-foreground">Checking administrator access...</div></div>;
@@ -70,10 +78,10 @@ function Router() {
       <Route path="/register" component={() => <GuestRoute component={RegisterPage} />} />
       <Route path="/admin" component={() => <AdminRoute component={AdminPage} />} />
       <Route path="/" component={HomeRoute} />
-      <Route path="/history" component={() => <ProtectedRoute component={HistoryPage} />} />
-      <Route path="/players" component={() => <ProtectedRoute component={PlayersPage} />} />
-      <Route path="/notifications" component={() => <ProtectedRoute component={NotificationsPage} />} />
-      <Route path="/faq" component={() => <ProtectedRoute component={FAQPage} />} />
+      <Route path="/history" component={() => <PlayerRoute component={HistoryPage} />} />
+      <Route path="/players" component={() => <PlayerRoute component={PlayersPage} />} />
+      <Route path="/notifications" component={() => <PlayerRoute component={NotificationsPage} />} />
+      <Route path="/faq" component={() => <PlayerRoute component={FAQPage} />} />
       <Route component={NotFound} />
     </Switch>
   );
