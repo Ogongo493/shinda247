@@ -1,7 +1,7 @@
 import { db } from '../index';
-import { games, bets, wallets, transactions } from '../schema';
-import { eq, and, desc, inArray } from 'drizzle-orm';
-import { computeCrashPoint, deriveNextHash, crashPointToElapsed, generateHashChain } from './rng.service';
+import { games, bets, wallets, transactions, houseReserve, houseReserveEntries } from '../schema';
+import { eq, and, desc, inArray, sql } from 'drizzle-orm';
+import { computeCrashPoint, computeCappedCrashPoint, deriveNextHash, crashPointToElapsed, generateHashChain } from './rng.service';
 import { creditWallet, debitWallet } from './wallet.service';
 
 export type GamePhase = 'waiting' | 'betting' | 'flying' | 'crashed';
@@ -32,6 +32,20 @@ let tickInterval: ReturnType<typeof setInterval> | null = null;
 let crashTimeout: ReturnType<typeof setTimeout> | null = null;
 let hashChain: string[] = [];
 let chainIndex = 0;
+let roundMaxPayoutCents = 0;
+
+async function ensureHouseReserve(): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [created] = await tx.insert(houseReserve).values({ id: 1 })
+      .onConflictDoNothing().returning({ id: houseReserve.id });
+    if (created) {
+      await tx.insert(houseReserveEntries).values({
+        type: 'seed', amountCents: 100000, balanceBeforeCents: 0,
+        balanceAfterCents: 100000, description: 'Initial KES 1,000 house reserve seed',
+      });
+    }
+  });
+}
 
 type EventHandler = (event: string, data: unknown) => void;
 let broadcast: EventHandler = () => {};
@@ -104,16 +118,35 @@ async function closeBetting(gameId: number, hash: string): Promise<void> {
     const [game] = await tx.select({ id: games.id, state: games.state })
       .from(games).where(eq(games.id, gameId)).for('update');
     if (!game || game.state !== 'betting' || !currentGame ||
-        currentGame.id !== gameId || currentGame.state !== 'betting') return false;
+        currentGame.id !== gameId || currentGame.state !== 'betting') return null;
+
+    const [reserve] = await tx.select().from(houseReserve)
+      .where(eq(houseReserve.id, 1)).for('update');
+    if (!reserve) throw new Error('House reserve is not initialized');
+    const [poolRow] = await tx.select({
+      total: sql<number>`coalesce(sum(${bets.amountCents}), 0)`,
+    }).from(bets).where(and(eq(bets.gameId, gameId), eq(bets.state, 'active')));
+    const totalPoolCents = Number(poolRow?.total ?? 0);
+    const maxAllowedPayoutCents = Math.floor(reserve.balanceCents * 0.05);
+
+    await tx.update(houseReserve).set({
+      reservedCents: reserve.reservedCents + maxAllowedPayoutCents,
+      updatedAt: new Date(),
+    }).where(eq(houseReserve.id, 1));
     await tx.update(games).set({
       state: 'flying', bettingCloseAt: new Date(), flyingStartAt: new Date(),
+      totalBetsCents: totalPoolCents,
     }).where(eq(games.id, gameId));
-    return true;
+    return { totalPoolCents, maxAllowedPayoutCents };
   });
   if (!transitioned || !currentGame || currentGame.id !== gameId) return;
 
   currentGame.state = 'flying';
-  const crashX100 = computeCrashPoint(hash);
+  roundMaxPayoutCents = transitioned.maxAllowedPayoutCents;
+  const crashX100 = computeCappedCrashPoint(
+    hash, transitioned.totalPoolCents, transitioned.maxAllowedPayoutCents,
+  );
+  currentGame.crashPoint = crashX100;
   const flightMs = crashPointToElapsed(crashX100);
   flyingStartTime = Date.now();
   broadcast('1502', {});
@@ -148,8 +181,44 @@ async function crashGame(gameId: number, crashX100: number, elapsedMs: number): 
       .from(games).where(eq(games.id, gameId)).for('update');
     if (!game || game.state === 'crashed') return false;
 
+    const [reserve] = await tx.select().from(houseReserve)
+      .where(eq(houseReserve.id, 1)).for('update');
+    if (!reserve) throw new Error('House reserve is not initialized');
+    const [totals] = await tx.select({
+      lostCents: sql<number>`coalesce(sum(case when ${bets.state} = 'active' then ${bets.amountCents} else 0 end), 0)`,
+      payoutCents: sql<number>`coalesce(sum(case when ${bets.state} = 'cashed_out' then ${bets.payoutCents} else 0 end), 0)`,
+      totalBetsCents: sql<number>`coalesce(sum(${bets.amountCents}), 0)`,
+    }).from(bets).where(eq(bets.gameId, gameId));
+    const lostCents = Number(totals?.lostCents ?? 0);
+    const payoutCents = Number(totals?.payoutCents ?? 0);
+    const totalBetsCents = Number(totals?.totalBetsCents ?? 0);
+    const balanceBefore = reserve.balanceCents;
+    const balanceAfter = balanceBefore - payoutCents + lostCents;
+    if (balanceAfter < 0) throw new Error('House reserve cannot cover settled payouts');
+
+    await tx.update(houseReserve).set({
+      balanceCents: balanceAfter,
+      reservedCents: Math.max(0, reserve.reservedCents - roundMaxPayoutCents),
+      updatedAt: new Date(),
+    }).where(eq(houseReserve.id, 1));
+    if (payoutCents > 0) {
+      await tx.insert(houseReserveEntries).values({
+        type: 'round_payout', amountCents: payoutCents,
+        balanceBeforeCents: balanceBefore, balanceAfterCents: balanceBefore - payoutCents,
+        gameId, description: 'Player cash-out payouts for round #' + gameId,
+      });
+    }
+    if (lostCents > 0) {
+      await tx.insert(houseReserveEntries).values({
+        type: 'round_losses', amountCents: lostCents,
+        balanceBeforeCents: balanceBefore - payoutCents,
+        balanceAfterCents: balanceAfter, gameId,
+        description: 'Uncashed player stakes for round #' + gameId,
+      });
+    }
     await tx.update(games).set({
       state: 'crashed', crashPoint: crashX100, crashedAt: new Date(), elapsedMs,
+      totalBetsCents, totalPayoutCents: payoutCents,
     }).where(eq(games.id, gameId));
     await tx.update(bets).set({ state: 'lost' })
       .where(and(eq(bets.gameId, gameId), eq(bets.state, 'active')));
@@ -196,6 +265,15 @@ export async function placeBet(
       if (!game || game.state !== 'betting' || !currentGame ||
           currentGame.id !== gameId || currentGame.state !== 'betting') {
         throw new Error('Betting is not open');
+      }
+
+      const [reserve] = await tx.select().from(houseReserve)
+        .where(eq(houseReserve.id, 1)).for('update');
+      if (!reserve) throw new Error('House reserve is not initialized');
+      const maxAllowedPayoutCents = Math.floor(reserve.balanceCents * 0.05);
+      if (amountCents > maxAllowedPayoutCents) {
+        throw new Error('Maximum bet currently limited to KSH ' +
+          (maxAllowedPayoutCents / 100).toFixed(2) + ' due to liquidity.');
       }
 
       const [wallet] = await tx.select().from(wallets)
@@ -276,7 +354,7 @@ export async function processCashout(
       if (!bet) throw new Error('No active bet found');
 
       const elapsed = Date.now() - (flyingStartTime ?? Date.now());
-      const crashX100 = computeCrashPoint(game.hash);
+      const crashX100 = currentGame.crashPoint ?? computeCrashPoint(game.hash);
       const crashElapsedMs = crashPointToElapsed(crashX100);
       const currentMultX100 = Math.round(Math.exp(Math.max(0, elapsed) / 35000) * 100);
       if (elapsed >= crashElapsedMs || currentMultX100 >= crashX100) {
