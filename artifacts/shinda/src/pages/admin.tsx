@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useLocation } from "wouter";
 import {
   Users, GamepadIcon, ArrowLeftRight, BarChart3, RefreshCw, Shield,
   ShieldOff, UserCheck, UserX, ChevronLeft, ChevronRight, Wallet,
-  Power, AlertTriangle, CheckCircle2, History,
+  Power, History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -120,7 +120,7 @@ export default function AdminPage() {
     else if (tab === "games") void loadGames(1);
   }, [tab, loadStats, loadReserve, loadControl, loadPlayers, loadTransactions, loadGames]);
 
-  async function adjustReserve(event: React.FormEvent) {
+  async function adjustReserve(event: FormEvent) {
     event.preventDefault();
     const amountKes = Number(amount);
     if (!Number.isFinite(amountKes) || amountKes <= 0) { setError("Enter a valid amount greater than zero."); return; }
