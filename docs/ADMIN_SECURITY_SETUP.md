@@ -40,7 +40,7 @@ The setup key is displayed only during enrollment. Store it securely; anyone wit
 - Administrator API sessions expire after 15 minutes without activity and have a 12-hour absolute lifetime.
 - Player sessions retain their existing lifetime.
 - Admin accounts are denied player betting, cash-out, wallet, deposit, withdrawal and notification APIs.
-- Public registration always creates a player account. It cannot assign administrator privileges.
+- Public registration always creates a player account. It cannot assign administrator privileges. Players can register with an optional email and sign in using either that email or their phone number.
 - Administrator mutations are recorded in the append-only audit log with the administrator ID, timestamp, IP address, user agent, action and result.
 
 ## 5. Staging verification checklist
