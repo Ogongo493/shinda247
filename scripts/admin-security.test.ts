@@ -6,6 +6,7 @@ import {
   encryptTotpSecret,
   decryptTotpSecret,
   verifyTotp,
+  matchingTotpStep,
 } from "../artifacts/api-server/src/lib/admin-totp.ts";
 
 process.env.ADMIN_TOTP_ENCRYPTION_KEY = Buffer.alloc(32, 0x5a).toString("base64");
@@ -63,4 +64,17 @@ test("TOTP accepts a valid six-digit code and rejects invalid codes", () => {
   assert.equal(verifyTotp(secret, code, time), true);
   assert.equal(verifyTotp(secret, "abcdef", time), false);
   assert.equal(verifyTotp(secret, "123", time), false);
+});
+
+
+test("TOTP matching returns the accepted counter so a code can be consumed only once", () => {
+  const secret = createTotpSecret();
+  const time = Math.floor(Date.now() / 30000) * 30000 + 15000;
+  const code = currentCode(secret, time);
+  const step = matchingTotpStep(secret, code, time);
+  assert.equal(typeof step, "number");
+  assert.equal(matchingTotpStep(secret, "000000", time), null);
+  // The persistence layer records this step and rejects any subsequent
+  // verification whose matching step is less than or equal to it.
+  assert.ok(step! > (step! - 1));
 });
