@@ -12,6 +12,7 @@ export const users = pgTable('users', {
   email:        varchar('email', { length: 254 }),
   adminTotpSecretEnc: text('admin_totp_secret_enc'),
   adminTotpEnabled: boolean('admin_totp_enabled').notNull().default(false),
+  adminTotpLastStep: bigint('admin_totp_last_step', { mode: 'number' }),
   kycVerified:  boolean('kyc_verified').notNull().default(false),
   createdAt:    timestamp('created_at').notNull().defaultNow(),
   updatedAt:    timestamp('updated_at').notNull().defaultNow(),
