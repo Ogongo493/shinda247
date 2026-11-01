@@ -156,9 +156,10 @@ router.post("/login", loginLimiter, async (req: Request, res: Response) => {
     return;
   }
 
-  const phone = normalizePhone(body.data.phone);
-
-  const [user] = await db.select().from(users).where(eq(users.phone, phone));
+  const identifier = body.data.phone.trim();
+  const [user] = identifier.includes("@")
+    ? await db.select().from(users).where(ilike(users.email, identifier.toLowerCase()))
+    : await db.select().from(users).where(eq(users.phone, normalizePhone(identifier)));
 
   // Generic error — don't reveal whether phone exists
   const INVALID = "Invalid phone number or password";
@@ -231,7 +232,7 @@ router.post("/login", loginLimiter, async (req: Request, res: Response) => {
 
   res.json({
     token,
-    user: { id: user.id, phone: user.phone, username: user.username, isAdmin: false },
+    user: { id: user.id, phone: user.phone, username: user.username, email: user.email, isAdmin: false },
   });
 });
 
@@ -373,6 +374,7 @@ router.get("/me", requireAuth, async (req: Request, res: Response) => {
     id: dbUser.id,
     phone: dbUser.phone,
     username: dbUser.username,
+    email: dbUser.email,
     isAdmin: dbUser.accountType === "admin",
     accountType: dbUser.accountType,
   });
