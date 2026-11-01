@@ -15,11 +15,11 @@ export function auditAdminMutation(req: Request, res: Response, next: NextFuncti
   }
 
   const admin = (req as any).user as { sub?: number } | undefined;
-  const adminUserId = admin?.sub;
-  if (!adminUserId) {
+  if (typeof admin?.sub !== "number") {
     next();
     return;
   }
+  const adminUserId: number = admin.sub;
 
   const originalJson = res.json.bind(res);
   let auditStarted = false;
