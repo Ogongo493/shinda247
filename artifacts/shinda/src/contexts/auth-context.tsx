@@ -46,6 +46,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => { active = false; };
   }, []);
 
+  // Admin sessions also expire in the browser after 15 minutes without user activity.
+  // The API independently enforces the same limit, so this is only the immediate UI logout.
+  useEffect(() => {
+    if (!user?.isAdmin || !token) return;
+    let timer: number;
+    const expire = () => {
+      setToken(null);
+      setUser(null);
+      localStorage.removeItem("shinda_token");
+      localStorage.removeItem("shinda_user");
+    };
+    const resetTimer = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(expire, 15 * 60 * 1000);
+    };
+    const events: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "touchstart", "wheel"];
+    events.forEach(event => window.addEventListener(event, resetTimer, { passive: true }));
+    resetTimer();
+    return () => {
+      window.clearTimeout(timer);
+      events.forEach(event => window.removeEventListener(event, resetTimer));
+    };
+  }, [user?.isAdmin, token]);
+
   function login(newToken: string, newUser: AuthUser) {
     setToken(newToken);
     setUser(newUser);
