@@ -9,6 +9,10 @@ ALTER TABLE users
 -- Preserve existing administrators exactly as currently represented in the database.
 UPDATE users SET account_type = CASE WHEN is_admin THEN 'admin' ELSE 'player' END;
 
+-- The owner explicitly authorized converting the existing Maiko account to admin-only.
+-- Keep the account and wallet history; player APIs reject the admin account type.
+UPDATE users SET account_type = 'admin', is_admin = true WHERE username = 'Maiko';
+
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_account_type_check;
 ALTER TABLE users ADD CONSTRAINT users_account_type_check
   CHECK (account_type IN ('player', 'admin'));
