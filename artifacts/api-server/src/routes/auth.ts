@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import crypto from "crypto";
 import { db } from "@workspace/db";
-import { users, wallets, adminSessions } from "@workspace/db";
+import { users, wallets, adminSessions, adminMfaChallenges } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { signJwt, verifyJwt, extractToken, type JwtPayload } from "../lib/jwt";
@@ -191,10 +191,17 @@ router.post("/login", loginLimiter, async (req: Request, res: Response) => {
         });
         return;
       }
+      const challengeId = crypto.randomUUID();
       const challengeToken = signJwt({
         sub: user.id, phone: user.phone, username: user.username,
-        isAdmin: true, purpose: "admin_mfa_challenge",
+        isAdmin: true, purpose: "admin_mfa_challenge", challengeId,
       }, 5 * 60);
+      await db.insert(adminMfaChallenges).values({
+        id: challengeId,
+        userId: user.id,
+        codeHash: crypto.createHash("sha256").update(challengeToken).digest("hex"),
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+      });
       res.json({ mfaRequired: true, challengeToken });
       return;
     } catch (error) {
@@ -265,14 +272,32 @@ router.post("/admin/mfa/verify", loginLimiter, async (req: Request, res: Respons
   }
   const [account] = await db.select().from(users).where(eq(users.id, payload.sub));
   if (!account || !account.isActive || account.accountType !== "admin" ||
-      !account.adminTotpEnabled || !account.adminTotpSecretEnc) {
+      !account.adminTotpEnabled || !account.adminTotpSecretEnc || !payload.challengeId) {
     res.status(403).json({ error: "Administrator account is not eligible to sign in." });
     return;
   }
   try {
     const secret = decryptTotpSecret(account.adminTotpSecretEnc);
-    if (!verifyTotp(secret, body.data.code)) {
-      res.status(401).json({ error: "Incorrect authenticator code." });
+    const challengeAccepted = await db.transaction(async (tx) => {
+      const [challenge] = await tx.select().from(adminMfaChallenges)
+        .where(eq(adminMfaChallenges.id, payload.challengeId!)).for("update");
+      const tokenHash = crypto.createHash("sha256").update(body.data.challengeToken).digest("hex");
+      if (!challenge || challenge.userId !== account.id || challenge.consumedAt ||
+          challenge.expiresAt.getTime() <= Date.now() || challenge.attempts >= 5 ||
+          challenge.codeHash !== tokenHash) return false;
+      if (!verifyTotp(secret, body.data.code)) {
+        await tx.update(adminMfaChallenges)
+          .set({ attempts: challenge.attempts + 1 })
+          .where(eq(adminMfaChallenges.id, challenge.id));
+        return false;
+      }
+      await tx.update(adminMfaChallenges)
+        .set({ consumedAt: new Date() })
+        .where(eq(adminMfaChallenges.id, challenge.id));
+      return true;
+    });
+    if (!challengeAccepted) {
+      res.status(401).json({ error: "Invalid, expired, or already-used authenticator challenge." });
       return;
     }
     const token = signJwt({
