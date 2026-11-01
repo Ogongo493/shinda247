@@ -21,7 +21,7 @@ Do not commit this value, put it in source code, or send it in chat. Keep a secu
 
 Apply `lib/db/migrations/0004_strict_admin_security.sql` to the staging database only after reviewing the migration and confirming a backup is available.
 
-The migration converts the existing account whose username is `Maiko` to the `admin` account type and temporarily sets it inactive for a safe cutover. It preserves the user record, wallet row, and historical records. Database triggers and API role checks prevent it from creating or changing player wallet, transaction, or wager records. After the new protected release is live, activate the account with a controlled database update to `is_active = true`; do not activate it while the old application version is running.
+The migration converts the existing account whose username is `Maiko` to the `admin` account type and temporarily sets it inactive for a safe cutover. It preserves the user record, wallet row, and historical records. Database triggers prevent new player wallet creation, bets, deposits and withdrawals for admin accounts; API role checks also deny their player endpoints. Updates needed to safely settle or refund records created before the account conversion remain allowed. After the new protected release is live, activate the account with a controlled database update to `is_active = true`; do not activate it while the old application version is running.
 
 ## 3. Enroll the administrator authenticator
 
