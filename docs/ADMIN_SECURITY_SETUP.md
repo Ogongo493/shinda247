@@ -21,17 +21,17 @@ Do not commit this value, put it in source code, or send it in chat. Keep a secu
 
 Apply `lib/db/migrations/0004_strict_admin_security.sql` to the staging database only after reviewing the migration and confirming a backup is available.
 
-The migration converts the existing account whose username is `Maiko` to the `admin` account type, while preserving its user record, wallet row, and historical records. Database triggers and API role checks prevent it from creating or changing player wallet, transaction, or wager records.
+The migration converts the existing account whose username is `Maiko` to the `admin` account type and temporarily sets it inactive for a safe cutover. It preserves the user record, wallet row, and historical records. Database triggers and API role checks prevent it from creating or changing player wallet, transaction, or wager records. After the new protected release is live, activate the account with a controlled database update to `is_active = true`; do not activate it while the old application version is running.
 
 ## 3. Enroll the administrator authenticator
 
 After the migration and deployment:
 
-1. Open the Shinda24/7 sign-in page.
-2. Sign in with the existing Maiko phone number and password.
+1. Confirm the new protected release is running and the Maiko account has been reactivated after deployment.\n2. Open the Shinda24/7 sign-in page.
+3. Sign in with the existing Maiko phone number and password.
 3. Add the displayed setup key to Google Authenticator, Microsoft Authenticator, or another compatible TOTP authenticator.
-4. Enter the current six-digit code to enable MFA.
-5. Sign in again and enter a fresh six-digit code.
+5. Enter the current six-digit code to enable MFA.
+6. Sign in again and enter a fresh six-digit code.
 
 The setup key is displayed only during enrollment. Store it securely; anyone with the key can generate administrator codes.
 
