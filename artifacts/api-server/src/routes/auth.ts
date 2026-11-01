@@ -321,6 +321,17 @@ router.post("/admin/mfa/verify", loginLimiter, async (req: Request, res: Respons
   }
 });
 
+router.post("/logout", requireAuth, async (req: Request, res: Response) => {
+  const user = (req as any).user as JwtPayload;
+  const token = extractToken(req.headers.authorization);
+  if (token && user.isAdmin) {
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    await db.update(adminSessions).set({ revokedAt: new Date() })
+      .where(eq(adminSessions.tokenHash, tokenHash));
+  }
+  res.json({ success: true });
+});
+
 router.get("/me", requireAuth, async (req: Request, res: Response) => {
   const user = (req as any).user as JwtPayload;
   const [dbUser] = await db.select().from(users).where(eq(users.id, user.sub));
