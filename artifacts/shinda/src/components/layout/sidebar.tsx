@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Home, Bell, History, Users, HelpCircle, Shield, Phone, Menu, X } from "lucide-react";
+import { Home, Bell, History, Users, HelpCircle, Shield, Phone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
 import { useState } from "react";
@@ -7,10 +7,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { BrandLogo } from "@/components/brand-logo";
 
 const NAV_ITEMS = [
-  { href: "/",             label: "Home",          icon: Home },
-  { href: "/history",      label: "History",       icon: History },
-  { href: "/players",      label: "Players",       icon: Users },
-  { href: "/notifications",label: "Alerts",        icon: Bell },
+  { href: "/", label: "Home", icon: Home },
+  { href: "/history", label: "History", icon: History },
+  { href: "/players", label: "Players", icon: Users },
+  { href: "/notifications", label: "Alerts", icon: Bell },
 ];
 
 function HelpDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -19,23 +19,16 @@ function HelpDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle className="font-display text-xl flex items-center gap-2">
-            <HelpCircle className="w-5 h-5 text-primary" />
-            Help & Support
+            <HelpCircle className="w-5 h-5 text-primary" /> Help & Support
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 mt-2">
-          <p className="text-sm text-muted-foreground">
-            Having issues? Our support team is available to help you.
-          </p>
+          <p className="text-sm text-muted-foreground">Having issues? Our support team is available to help you.</p>
           <div className="bg-secondary/50 rounded-xl p-4 flex items-center gap-4">
-            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-              <Phone className="w-5 h-5 text-primary" />
-            </div>
+            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0"><Phone className="w-5 h-5 text-primary" /></div>
             <div>
               <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider mb-0.5">Call or WhatsApp</p>
-              <a href="tel:0757007982" className="text-lg font-bold font-mono text-foreground hover:text-primary transition-colors">
-                0757007982
-              </a>
+              <a href="tel:0757007982" className="text-lg font-bold font-mono text-foreground hover:text-primary transition-colors">0757007982</a>
             </div>
           </div>
           <p className="text-xs text-muted-foreground text-center">Available Mon–Sat, 8am–8pm EAT</p>
@@ -45,101 +38,65 @@ function HelpDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ variant = "player" }: { variant?: "player" | "admin" }) {
   const [location] = useLocation();
   const { user } = useAuth();
   const [helpOpen, setHelpOpen] = useState(false);
+  const isAdminLayout = variant === "admin";
 
   return (
     <>
-      {/* ── Desktop sidebar (md+) ─────────────────────────────────────── */}
       <aside className="w-64 h-full hidden md:flex flex-col bg-card border-r border-border/50 z-20">
-        <div className="h-20 flex items-center px-6 border-b border-border/50">
-          <BrandLogo size="md" />
-        </div>
-
-        <nav aria-label="Primary navigation" className="flex-1 py-6 px-4 space-y-2">
-          {NAV_ITEMS.map((item) => {
-            const isActive = location === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={isActive ? "page" : undefined}
-                className={cn(
-                  "flex items-center gap-3 px-4 py-3 rounded-xl transition-colors duration-200 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                  isActive
-                    ? "bg-primary/10 text-primary border border-primary/20 shadow-[inset_0_0_20px_rgba(255,107,0,0.05)]"
-                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                )}
-              >
-                <item.icon aria-hidden="true" className="w-5 h-5 shrink-0" />
-                {item.label}
-              </Link>
-            );
-          })}
-          {user?.isAdmin && (
-            <Link
-              href="/admin"
-              className={cn(
-                "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium",
-                location === "/admin"
-                  ? "bg-primary/10 text-primary border border-primary/20"
-                  : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-              )}
-            >
-              <Shield className="w-5 h-5" />
-              Admin Panel
-            </Link>
-          )}
-        </nav>
-
-        <div className="p-4 mt-auto border-t border-border/50">
-          <button
-            onClick={() => setHelpOpen(true)}
-            type="button"
-            className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors duration-200 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            <HelpCircle className="w-5 h-5" />
-            Help & Support
-          </button>
-        </div>
+        <div className="h-20 flex items-center px-6 border-b border-border/50"><BrandLogo size="md" /></div>
+        {isAdminLayout ? (
+          <div className="flex-1 p-4">
+            <div className="flex items-center gap-3 rounded-xl bg-primary/10 border border-primary/20 px-4 py-3 text-primary font-medium">
+              <Shield className="w-5 h-5 shrink-0" /> Administrator
+            </div>
+            <p className="px-4 pt-3 text-xs text-muted-foreground">Platform management</p>
+          </div>
+        ) : (
+          <>
+            <nav aria-label="Primary navigation" className="flex-1 py-6 px-4 space-y-2">
+              {NAV_ITEMS.map((item) => {
+                const isActive = location === item.href;
+                return <Link key={item.href} href={item.href} aria-current={isActive ? "page" : undefined}
+                  className={cn("flex items-center gap-3 px-4 py-3 rounded-xl transition-colors duration-200 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                    isActive ? "bg-primary/10 text-primary border border-primary/20 shadow-[inset_0_0_20px_rgba(255,107,0,0.05)]" : "text-muted-foreground hover:bg-secondary hover:text-foreground")}>
+                  <item.icon aria-hidden="true" className="w-5 h-5 shrink-0" />{item.label}
+                </Link>;
+              })}
+              {user?.isAdmin && <Link href="/admin" className={cn("flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium",
+                location === "/admin" ? "bg-primary/10 text-primary border border-primary/20" : "text-muted-foreground hover:bg-secondary hover:text-foreground")}>
+                <Shield className="w-5 h-5" />Admin Panel
+              </Link>}
+            </nav>
+            <div className="p-4 mt-auto border-t border-border/50">
+              <button onClick={() => setHelpOpen(true)} type="button" className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors duration-200 font-medium">
+                <HelpCircle className="w-5 h-5" />Help & Support
+              </button>
+            </div>
+          </>
+        )}
       </aside>
 
-      {/* ── Mobile bottom navigation (below md) ───────────────────────── */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border/50 flex items-stretch safe-area-pb">
+      {!isAdminLayout && <nav aria-label="Player navigation" className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border/50 flex items-stretch safe-area-pb">
         {NAV_ITEMS.map((item) => {
           const isActive = location === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-current={isActive ? "page" : undefined}
-              className={cn(
-                "flex-1 flex flex-col items-center justify-center gap-1 py-3 transition-colors relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                isActive ? "text-primary" : "text-muted-foreground"
-              )}
-            >
-              <item.icon aria-hidden="true" className="w-5 h-5" />
-              <span className="text-[10px] font-bold uppercase tracking-wider">{item.label}</span>
-              {isActive && (
-                <div className="absolute bottom-0 w-8 h-0.5 bg-primary rounded-full" />
-              )}
-            </Link>
-          );
+          return <Link key={item.href} href={item.href} aria-current={isActive ? "page" : undefined}
+            className={cn("flex-1 flex flex-col items-center justify-center gap-1 py-3 transition-colors relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+              isActive ? "text-primary" : "text-muted-foreground")}>
+            <item.icon aria-hidden="true" className="w-5 h-5" />
+            <span className="text-[10px] font-bold uppercase tracking-wider">{item.label}</span>
+            {isActive && <div className="absolute bottom-0 w-8 h-0.5 bg-primary rounded-full" />}
+          </Link>;
         })}
-        <button
-          onClick={() => setHelpOpen(true)}
-          type="button"
-          aria-label="Open help and support"
-          className="flex-1 flex flex-col items-center justify-center gap-1 py-3 text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-        >
-          <HelpCircle className="w-5 h-5" />
-          <span className="text-[10px] font-bold uppercase tracking-wider">Help</span>
+        <button onClick={() => setHelpOpen(true)} type="button" aria-label="Open help and support"
+          className="flex-1 flex flex-col items-center justify-center gap-1 py-3 text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
+          <HelpCircle className="w-5 h-5" /><span className="text-[10px] font-bold uppercase tracking-wider">Help</span>
         </button>
-      </nav>
-
-      <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
+      </nav>}
+      {!isAdminLayout && <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />}
     </>
   );
 }
