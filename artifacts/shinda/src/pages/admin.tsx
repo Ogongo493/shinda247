@@ -179,7 +179,7 @@ export default function AdminPage() {
   if (!user?.isAdmin) return null;
 
   return <div className="flex min-h-screen md:h-screen w-full overflow-hidden bg-background text-foreground">
-    <Sidebar />
+    <Sidebar variant="admin" />
     <div className="flex-1 flex flex-col min-w-0 md:h-full">
       <header className="min-h-16 border-b border-border/50 bg-card px-4 md:px-6 py-3 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3"><Shield className="w-5 h-5 text-primary" /><div><h1 className="text-lg font-bold font-display">Admin Panel</h1><p className="text-xs text-muted-foreground">Operator controls · {user.username}</p></div></div>
