@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
-import { users, wallets, transactions, games, bets } from "@workspace/db";
+import { users, wallets, transactions, games, bets, houseReserve, houseReserveEntries } from "@workspace/db";
 import { eq, desc, sql, count, sum } from "drizzle-orm";
 import { requireAuth } from "./auth";
 import type { JwtPayload } from "../lib/jwt";
@@ -145,6 +145,89 @@ router.patch("/players/:id/toggle-admin", requireAuth, requireAdmin, async (req:
     .where(eq(users.id, userId))
     .returning({ id: users.id, isAdmin: users.isAdmin });
   res.json(updated);
+});
+
+
+router.get("/house-reserve", requireAuth, requireAdmin, async (_req: Request, res: Response) => {
+  const [reserve] = await db.select().from(houseReserve).where(eq(houseReserve.id, 1));
+  if (!reserve) { res.status(503).json({ error: "House reserve is not initialized" }); return; }
+  res.json({
+    balanceKes: reserve.balanceCents / 100,
+    reservedKes: reserve.reservedCents / 100,
+    availableKes: (reserve.balanceCents - reserve.reservedCents) / 100,
+    currency: reserve.currency,
+    riskRate: 0.05,
+    maxAllowedPayoutKes: Math.floor(reserve.balanceCents * 0.05) / 100,
+    updatedAt: reserve.updatedAt.toISOString(),
+  });
+});
+
+router.post("/house-reserve/adjust", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const user = (req as any).user as JwtPayload;
+  const action = req.body?.action;
+  const amountKes = Number(req.body?.amountKes);
+  const description = typeof req.body?.description === "string"
+    ? req.body.description.trim().slice(0, 250) : "";
+
+  if ((action !== "deposit" && action !== "withdraw") ||
+      !Number.isFinite(amountKes) || amountKes <= 0 ||
+      !Number.isSafeInteger(Math.round(amountKes * 100))) {
+    res.status(400).json({ error: "Provide action deposit/withdraw and a positive amountKes." });
+    return;
+  }
+
+  const amountCents = Math.round(amountKes * 100);
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [reserve] = await tx.select().from(houseReserve)
+        .where(eq(houseReserve.id, 1)).for("update");
+      if (!reserve) throw new Error("House reserve is not initialized");
+
+      const balanceBefore = reserve.balanceCents;
+      const balanceAfter = action === "deposit"
+        ? balanceBefore + amountCents
+        : balanceBefore - amountCents;
+      const availableCents = balanceBefore - reserve.reservedCents;
+      if (action === "withdraw" && amountCents > availableCents) {
+        throw new Error("Withdrawal exceeds the unreserved house reserve balance.");
+      }
+      if (!Number.isSafeInteger(balanceAfter) || balanceAfter < 0) {
+        throw new Error("House reserve balance would be invalid.");
+      }
+
+      await tx.update(houseReserve).set({
+        balanceCents: balanceAfter,
+        updatedAt: new Date(),
+      }).where(eq(houseReserve.id, 1));
+      await tx.insert(houseReserveEntries).values({
+        type: action === "deposit" ? "admin_deposit" : "admin_withdrawal",
+        amountCents,
+        balanceBeforeCents: balanceBefore,
+        balanceAfterCents: balanceAfter,
+        adminUserId: user.sub,
+        description: description || (action === "deposit" ? "Admin reserve funding" : "Admin profit withdrawal"),
+      });
+      return {
+        balanceKes: balanceAfter / 100,
+        reservedKes: reserve.reservedCents / 100,
+        availableKes: (balanceAfter - reserve.reservedCents) / 100,
+      };
+    });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Reserve adjustment failed" });
+  }
+});
+
+router.get("/house-reserve/ledger", requireAuth, requireAdmin, async (_req: Request, res: Response) => {
+  const rows = await db.select().from(houseReserveEntries)
+    .orderBy(desc(houseReserveEntries.createdAt)).limit(100);
+  res.json(rows.map(row => ({
+    ...row,
+    amountKes: row.amountCents / 100,
+    balanceBeforeKes: row.balanceBeforeCents / 100,
+    balanceAfterKes: row.balanceAfterCents / 100,
+  })));
 });
 
 export default router;
