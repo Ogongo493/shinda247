@@ -51,3 +51,26 @@ export function elapsedToMultiplier(elapsedMs: number): number {
   const K = 35000;
   return Math.round(Math.exp(elapsedMs / K) * 100) / 100;
 }
+
+/** Apply the disclosed house-liquidity ceiling after the hash-derived RNG.
+ * Amounts are integer KES cents; multiplier values are x100.
+ * A cap below 1.00x deliberately becomes an instant bust at 1.00x.
+ */
+export function computeCappedCrashPoint(
+  hash: string,
+  totalRoundPoolCents: number,
+  maxAllowedPayoutCents: number,
+): number {
+  const theoreticalCrashX100 = computeCrashPoint(hash);
+  if (!Number.isSafeInteger(totalRoundPoolCents) || totalRoundPoolCents <= 0) {
+    return theoreticalCrashX100;
+  }
+  if (!Number.isSafeInteger(maxAllowedPayoutCents) || maxAllowedPayoutCents < 0) {
+    throw new Error('Invalid house risk ceiling');
+  }
+  const maxMultiplierX100 = Math.floor(
+    (maxAllowedPayoutCents * 100) / totalRoundPoolCents,
+  );
+  if (maxMultiplierX100 < 100) return 100;
+  return Math.min(theoreticalCrashX100, maxMultiplierX100);
+}
