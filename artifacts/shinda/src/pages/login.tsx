@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { BrandLogo } from "@/components/brand-logo";
 
 function normalizePhone(phone: string): string {
+  if (phone.includes("@")) return phone.trim().toLowerCase();
   const digits = phone.replace(/\D/g, "");
   if (digits.startsWith("254")) return digits;
   if (digits.startsWith("0")) return "254" + digits.slice(1);
@@ -108,8 +109,8 @@ export default function LoginPage() {
           {mfaStage === "login" ? (
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-2">
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Phone Number</label>
-                <Input type="tel" placeholder="0712345678" value={phone} onChange={e => setPhone(e.target.value)} className="h-12 text-base" required />
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Phone Number or Email</label>
+                <Input type="text" placeholder="0712345678 or you@example.com" value={phone} onChange={e => setPhone(e.target.value)} className="h-12 text-base" required />
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Password</label>
