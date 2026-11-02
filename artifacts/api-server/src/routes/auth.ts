@@ -57,30 +57,37 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
 
 // ── Validation schemas ────────────────────────────────────────────────────────
 
+function normalizePhone(phone: string): string | null {
+  const value = phone.trim();
+  // Permit common human formatting, but never silently strip letters or arbitrary characters.
+  if (!/^\+?[0-9\s()-]+$/.test(value)) return null;
+  const digits = value.replace(/\D/g, "");
+  if (/^0[17][0-9]{8}$/.test(digits)) return "254" + digits.slice(1);
+  if (/^254[17][0-9]{8}$/.test(digits)) return digits;
+  return null;
+}
+
 const RegisterSchema = z.object({
   username: z.string()
     .min(3, "Username must be at least 3 characters")
     .max(32, "Username must be at most 32 characters")
     .regex(/^[a-zA-Z0-9_]+$/, "Username: letters, digits, and underscores only"),
-  phone: z.string()
-    .min(9, "Invalid phone number")
-    .max(15, "Invalid phone number"),
+  phone: z.string().refine(
+    (value) => normalizePhone(value) !== null,
+    "Enter a valid Kenyan mobile number starting with 07, 01, or +254"
+  ),
   password: z.string()
     .min(6, "Password must be at least 6 characters")
     .max(72, "Password too long"),
 });
 
 const LoginSchema = z.object({
-  phone: z.string().min(1, "Phone number is required"),
+  phone: z.string().refine(
+    (value) => normalizePhone(value) !== null,
+    "Enter a valid Kenyan mobile number"
+  ),
   password: z.string().min(1, "Password is required"),
 });
-
-function normalizePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("254")) return digits;
-  if (digits.startsWith("0"))   return "254" + digits.slice(1);
-  return digits;
-}
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
@@ -91,7 +98,7 @@ router.post("/register", registerLimiter, async (req: Request, res: Response) =>
     return;
   }
 
-  const phone    = normalizePhone(body.data.phone);
+  const phone    = normalizePhone(body.data.phone)!;
   const username = body.data.username;
   const password = body.data.password;
 
@@ -142,7 +149,7 @@ router.post("/login", loginLimiter, async (req: Request, res: Response) => {
     return;
   }
 
-  const phone = normalizePhone(body.data.phone);
+  const phone = normalizePhone(body.data.phone)!;
 
   const [user] = await db.select().from(users).where(eq(users.phone, phone));
 
